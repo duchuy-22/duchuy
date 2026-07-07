@@ -17,8 +17,6 @@
 #define UIControlEventValueChanged (1 << 12)
 #endif
 
-/* STREAMING_CHUNK: Configuring Firebase and Global Variables */
-
 // =====================================================================
 // CẤU HÌNH LIÊN KẾT DATABASE FIREBASE THẬT CỦA SẾP HUY
 // =====================================================================
@@ -85,8 +83,6 @@ static CAShapeLayer *fovCircleLayer = nil;
 + (void)toggleMenuGlobal;
 @end
 
-/* STREAMING_CHUNK: Setting sync and load/save functions */
-
 // =====================================================================
 // HÀM ĐỒNG BỘ & LƯU TRỮ CẤU HÌNH VÀO THIẾT BỊ (SAVE/LOAD SETTINGS)
 // =====================================================================
@@ -145,8 +141,6 @@ static void saveAllModSettingsToDevice() {
     [defaults synchronize];
 }
 
-/* STREAMING_CHUNK: Passthrough Window implementation */
-
 // =====================================================================
 // LỚP CỬA SỔ TRONG SUỐT TOUCH PASSTHROUGH (ĐÈ LÊN 100% WEBVIEW/GAME)
 // =====================================================================
@@ -155,7 +149,7 @@ static void saveAllModSettingsToDevice() {
 
 @implementation HuyPassthroughWindow
 
-// Thuật toán vàng: Chỉ nhận tương tác chạm nếu chạm trúng menuContainer đang hiển thị!
+// Quyết định điểm chạm nào được nhận: Chỉ nhận chạm nếu sếp bấm trúng menuContainer đang hiển thị!
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hitView = [super hitTest:point withEvent:event];
     if (menuContainer && !menuContainer.hidden) {
@@ -164,7 +158,7 @@ static void saveAllModSettingsToDevice() {
             return hitView;
         }
     }
-    // Nếu menu đang ẩn, hoặc sếp chạm ra ngoài vùng menu -> Chạm xuyên thấu xuống game dưới
+    // Nếu menu đang ẩn hoặc chạm ra ngoài rìa menu, trả về nil để sự kiện chạm trôi tuột xuống game phía dưới!
     return nil;
 }
 
@@ -206,59 +200,31 @@ static UIWindow* getActiveKeyWindow() {
     return activeWindow;
 }
 
-/* STREAMING_CHUNK: Gesture Delegate initialization */
-
 // =====================================================================
-// ĐIỀU PHỐI CỬ CHỈ GÕ CHẠY SONG SONG CHỐNG NUỐT CỦA WEBVIEW/GAME
+// HOOK GIAO DIỆN PHÁT SỰ KIỆN GỐC - CHỐNG NUỐT CỬ CHỈ CỦA TRÌNH DUYỆT WEB
 // =====================================================================
-@interface HuyGestureDelegate : NSObject <UIGestureRecognizerDelegate>
-+ (instancetype)sharedInstance;
-- (void)attachGestureToWindow:(UIWindow *)window;
-@end
+static void (*orig_UIWindow_sendEvent)(id, SEL, UIEvent *);
 
-@implementation HuyGestureDelegate
-
-+ (instancetype)sharedInstance {
-    static HuyGestureDelegate *instance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        instance = [[HuyGestureDelegate alloc] init];
-    });
-    return instance;
-}
-
-- (void)attachGestureToWindow:(UIWindow *)window {
-    if (!window) return;
-    
-    // Ép bật đa chạm đa điểm
-    window.multipleTouchEnabled = YES;
-    if (window.rootViewController && window.rootViewController.view) {
-        window.rootViewController.view.multipleTouchEnabled = YES;
+static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) {
+    if (event.type == UIEventTypeTouches) {
+        NSSet *touches = [event allTouches];
+        if (touches.count == 3) { // Phát hiện đúng 3 ngón tay chạm cùng lúc!
+            UITouch *touch = [touches anyObject];
+            if (touch.phase == UITouchPhaseEnded && touch.tapCount == 2) { // Gõ đúng 2 lần liên tục!
+                static NSTimeInterval lastTapTime = 0;
+                NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+                // Chống hiện tượng lặp lệnh trùng lặp trong tíc tắc
+                if (now - lastTapTime > 0.5) {
+                    lastTapTime = now;
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [HuyMenuController toggleMenuGlobal];
+                    });
+                }
+            }
+        }
     }
-    
-    UITapGestureRecognizer *tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTripleFingerTap:)];
-    tapGesture.numberOfTouchesRequired = 3; // Đúng 3 ngón tay như sếp Huy yêu cầu!
-    tapGesture.numberOfTapsRequired = 2;    // Đúng 2 lần nhấp!
-    tapGesture.cancelsTouchesInView = NO;   // Chạy song song không chặn game
-    tapGesture.delaysTouchesBegan = NO;
-    tapGesture.delegate = self;
-    
-    [window addGestureRecognizer:tapGesture];
+    orig_UIWindow_sendEvent(self, _cmd, event);
 }
-
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
-    return YES; // Cho phép cử chỉ chạy song song
-}
-
-- (void)handleTripleFingerTap:(UITapGestureRecognizer *)gesture {
-    if (gesture.state == UIGestureRecognizerStateEnded) {
-        [HuyMenuController toggleMenuGlobal];
-    }
-}
-
-@end
-
-/* STREAMING_CHUNK: View Controller and layout setup */
 
 // =====================================================================
 // LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH (VIEW CONTROLLER)
@@ -266,7 +232,7 @@ static UIWindow* getActiveKeyWindow() {
 @implementation HuyMenuController
 
 - (void)viewDidLoad {
-    [super viewDidLoad];
+    [super NSObject]; // Đảm bảo gọi hàm khởi tạo lớp cơ sở đúng cách
     self.view.backgroundColor = [UIColor clearColor];
     
     // Tải cấu hình
@@ -278,7 +244,7 @@ static UIWindow* getActiveKeyWindow() {
     menuContainer.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.96];
     menuContainer.layer.borderWidth = 1.5;
     menuContainer.layer.borderColor = menuAccentColor.CGColor;
-    menuContainer.hidden = YES; // Mặc định ẩn container, không ẩn Window!
+    menuContainer.hidden = YES; // Ẩn bảng điều khiển lúc đầu, giữ Window luôn hiển thị để chạy hack!
     [self updateMenuContainerStyle];
     [self.view addSubview:menuContainer];
     
@@ -408,7 +374,7 @@ static UIWindow* getActiveKeyWindow() {
     }
 }
 
-// 🌟 CHỈ ẨN MENU CONTAINER, TUYỆT ĐỐI KHÔNG ẨN WINDOW ĐỂ HACK CHẠY LIÊN TỤC!
+// 🌟 FIX LỖI CHÍ MẠNG: CHỈ ẨN MENU CONTAINER, TUYỆT ĐỐI KHÔNG ẨN WINDOW ĐỂ HACK CHẠY LIÊN TỤC!
 - (void)closeMenuWithAnimation {
     [UIView animateWithDuration:0.2 animations:^{
         menuContainer.transform = CGAffineTransformMakeScale(0.7, 0.7);
@@ -441,8 +407,6 @@ static UIWindow* getActiveKeyWindow() {
         }];
     }
 }
-
-/* STREAMING_CHUNK: Rendering logic and options */
 
 - (void)updateThemeColors {
     if (accentColorIndex == 0) {
@@ -578,7 +542,7 @@ static UIWindow* getActiveKeyWindow() {
             
             authPanel.hidden = YES;
             mainModPanel.hidden = NO;
-            menuContainer.hidden = NO; // Hiển thị container
+            menuContainer.hidden = NO; // Mở khóa hiển thị bảng
             [self renderActiveTabScreen:0];
             
             [self startExpirationTimer];
@@ -644,8 +608,6 @@ static UIWindow* getActiveKeyWindow() {
         [toast removeFromSuperview];
     }];
 }
-
-/* STREAMING_CHUNK: Full Mod UI Renderer */
 
 - (void)renderActiveTabScreen:(NSInteger)idx {
     for (UIView *sub in self.scrollView.subviews) {
@@ -727,7 +689,7 @@ static UIWindow* getActiveKeyWindow() {
         y += 75;
         
     } else if (idx == 1) {
-        // TAB 1: ESP
+        // TAB 1: ESP HIỂN THỊ
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"XUYÊN TƯỜNG ĐỊNH VỊ (ESP)" : @"WALL ESP CONFIGURATION"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -957,7 +919,7 @@ static UIWindow* getActiveKeyWindow() {
         
         [self updateCountdownRealtime];
         
-        // 💾 NÚT LƯU CẤU HÌNH NHẬN BIẾN PHÁT SÁNG THEO YÊU CẦU CỦA SẾP HUY
+        // 💾 NÚT LƯU CONFIG PHÁT SÁNG THEO YÊU CẦU CỦA SẾP HUY
         UIButton *saveSettingsBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         saveSettingsBtn.frame = CGRectMake(10, y, 380, 45);
         saveSettingsBtn.backgroundColor = menuAccentColor;
@@ -1176,8 +1138,6 @@ static UIWindow* getActiveKeyWindow() {
 
 @end
 
-/* STREAMING_CHUNK: Setup Initializers and Window Observers */
-
 // =====================================================================
 // KHỞI CHẠY GIAO DIỆN & DÒ SCENE HOẠT ĐỘNG
 // =====================================================================
@@ -1193,7 +1153,6 @@ static UIWindow* getActiveKeyWindow() {
         
         if (@available(iOS 13.0, *)) {
             scene = getActiveWindowScene();
-            // Nếu chưa load xong scene, quét liên tục mỗi 0.5s để vẽ giao diện chuẩn
             if (!scene) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     [HuyMenuInitializer tryInitializeUI];
@@ -1202,7 +1161,7 @@ static UIWindow* getActiveKeyWindow() {
             }
         }
         
-        // 🌟 KHỞI TẠO CỬA SỔ CHẠM XUYÊN THẤU - LUÔN LUÔN HOẠT ĐỘNG ĐỂ VẼ HACK NGẦM
+        // 🌟 KHỞI TẠO CỬA SỔ CHẠM XUYÊN THẤU - LUÔN LUÔN HOẠT ĐỘNG ĐỂ CHẠY HACK LIÊN TỤC
         if (@available(iOS 13.0, *)) {
             overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithWindowScene:scene];
         } else {
@@ -1210,7 +1169,7 @@ static UIWindow* getActiveKeyWindow() {
         }
         overlayMenuWindow.frame = [UIScreen mainScreen].bounds;
         overlayMenuWindow.backgroundColor = [UIColor clearColor];
-        overlayMenuWindow.windowLevel = UIWindowLevelAlert + 1000;
+        overlayMenuWindow.windowLevel = UIWindowLevelAlert + 1000; // Đè lên mức tối đa
         
         HuyMenuController *controller = [[HuyMenuController alloc] init];
         overlayMenuWindow.rootViewController = controller;
@@ -1218,7 +1177,7 @@ static UIWindow* getActiveKeyWindow() {
         // Giữ cửa sổ luôn hiển thị (hidden = NO) để vẽ FOV và chạy hack liên tục
         overlayMenuWindow.hidden = NO;
         
-        // Gán cử chỉ gõ 3 ngón tay song song thông qua Delegate
+        // Gán cử chỉ gõ 3 ngón tay song song thông qua Delegate trực tiếp lên Window chính
         UIWindow *activeWin = getActiveKeyWindow();
         if (activeWin) {
             [[HuyGestureDelegate sharedInstance] attachGestureToWindow:activeWin];
@@ -1231,6 +1190,12 @@ static UIWindow* getActiveKeyWindow() {
 // Khởi chạy lập tức khi dylib được tải vào game
 __attribute__((constructor)) static void initialize() {
     loadSavedModSettings();
+    
+    // 🌟 KHỞI TẠO BỘ HOOK CỬ CHỈ GÕ GỐC - CHỐNG TRÌNH DUYỆT NUỐT CHỮ
+    Method originalMethod = class_getInstanceMethod([UIWindow class], @selector(sendEvent:));
+    orig_UIWindow_sendEvent = (void *)method_getImplementation(originalMethod);
+    method_setImplementation(originalMethod, (IMP)custom_UIWindow_sendEvent);
+    
     if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
         [HuyMenuInitializer tryInitializeUI];
     } else {
