@@ -24,7 +24,7 @@ static NSString *const FIREBASE_DB_URL = @"https://duchuy-75d5d-default-rtdb.fir
 static NSString *const APP_ID = @"granny_v1_vip";
 
 // =====================================================================
-// BIẾN TRẠNG THÁI TOÀN CỤC CỦA HỆ THỐNG MENU MOD
+// BIẾN TRẠNG THÁI TOÀN CỤC - ĐẢM BẢO CHẠY LIÊN TỤC KHI TẮT MENU
 // =====================================================================
 static BOOL isKeyValidated = NO;
 static NSString *currentActiveKey = @"";
@@ -32,7 +32,7 @@ static NSString *usernameInfo = @"Chưa đăng ký";
 static NSTimeInterval keyExpirationTimestamp = 0;
 static NSTimer *countdownTimer = nil;
 
-// Tùy chỉnh Menu
+// Tùy chỉnh giao diện
 static BOOL isVietnamese = YES;
 static NSInteger menuStyleCorner = 1; // 0 = Góc vuông, 1 = Góc tròn
 static UIColor *menuAccentColor;
@@ -55,14 +55,13 @@ static float espMaxDistance = 250.0f;
 static UIColor *espColor;
 static NSInteger espColorIndex = 0; // 0 = Đỏ, 1 = Xanh lá, 2 = Vàng
 
-// Cấu hình khác
+// Cấu hình chức năng khác
 static BOOL isGodMode = NO;
 static BOOL isHighSpeed = NO;
 static float cameraFov = 60.0f;
 static NSString *selectedItemToSpawn = @"Shotgun";
 
 // Các phần tử giao diện
-static UIWindow *floatingButtonWindow;
 static UIWindow *overlayMenuWindow;
 static UIView *menuContainer;
 static UIView *authPanel;
@@ -72,10 +71,67 @@ static UILabel *countdownLabel;
 static UILabel *userLabel;
 static UILabel *keyDisplayLabel;
 static CAShapeLayer *fovCircleLayer;
-static UIButton *floatingBtn;
 
 // =====================================================================
-// DÒ TÌM WINDOW SCENE HOẠT ĐỘNG TRÊN MỌI THIẾT BỊ IOS 13+
+// HÀM ĐỒNG BỘ & LƯU TRỮ CẤU HÌNH VÀO THIẾT BỊ (SAVE/LOAD SETTINGS)
+// =====================================================================
+static void loadSavedModSettings() {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([defaults objectForKey:@"huy_settings_saved"] != nil) {
+        isAimbotActive = [defaults boolForKey:@"huy_aimbot_active"];
+        aimTargetPosition = [defaults stringForKey:@"huy_aim_target"] ?: @"Đầu";
+        isAimbotAlways = [defaults boolForKey:@"huy_aim_always"];
+        isAimThroughWall = [defaults boolForKey:@"huy_aim_wall"];
+        aimbotFovRadius = [defaults floatForKey:@"huy_aim_fov_radius"] ?: 120.0f;
+        showFovCircle = [defaults boolForKey:@"huy_show_fov_circle"];
+        
+        isEspActive = [defaults boolForKey:@"huy_esp_active"];
+        isEspLines = [defaults boolForKey:@"huy_esp_lines"];
+        isEspBoxes = [defaults boolForKey:@"huy_esp_boxes"];
+        isEspSkeleton = [defaults boolForKey:@"huy_esp_skeleton"];
+        espMaxDistance = [defaults floatForKey:@"huy_esp_max_distance"] ?: 250.0f;
+        espColorIndex = [defaults integerForKey:@"huy_esp_color_idx"];
+        
+        isGodMode = [defaults boolForKey:@"huy_god_mode"];
+        isHighSpeed = [defaults boolForKey:@"huy_high_speed"];
+        cameraFov = [defaults floatForKey:@"huy_camera_fov"] ?: 60.0f;
+        
+        menuStyleCorner = [defaults integerForKey:@"huy_menu_corner"];
+        accentColorIndex = [defaults integerForKey:@"huy_accent_color_idx"];
+        isVietnamese = [defaults objectForKey:@"huy_lang_viet"] ? [defaults boolForKey:@"huy_lang_viet"] : YES;
+    }
+}
+
+static void saveAllModSettingsToDevice() {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:YES forKey:@"huy_settings_saved"];
+    [defaults setBool:isAimbotActive forKey:@"huy_aimbot_active"];
+    [defaults setObject:aimTargetPosition forKey:@"huy_aim_target"];
+    [defaults setBool:isAimbotAlways forKey:@"huy_aim_always"];
+    [defaults setBool:isAimThroughWall forKey:@"huy_aim_wall"];
+    [defaults setFloat:aimbotFovRadius forKey:@"huy_aim_fov_radius"];
+    [defaults setBool:showFovCircle forKey:@"huy_show_fov_circle"];
+    
+    [defaults setBool:isEspActive forKey:@"huy_esp_active"];
+    [defaults setBool:isEspLines forKey:@"huy_esp_lines"];
+    [defaults setBool:isEspBoxes forKey:@"huy_esp_boxes"];
+    [defaults setBool:isEspSkeleton forKey:@"huy_esp_skeleton"];
+    [defaults setFloat:espMaxDistance forKey:@"huy_esp_max_distance"];
+    [defaults setInteger:espColorIndex forKey:@"huy_esp_color_idx"];
+    
+    [defaults setBool:isGodMode forKey:@"huy_god_mode"];
+    [defaults setBool:isHighSpeed forKey:@"huy_high_speed"];
+    [defaults setFloat:cameraFov forKey:@"huy_camera_fov"];
+    
+    [defaults setInteger:menuStyleCorner forKey:@"huy_menu_corner"];
+    [defaults setInteger:accentColorIndex forKey:@"huy_accent_color_idx"];
+    [defaults setBool:isVietnamese forKey:@"huy_lang_viet"];
+    
+    [defaults synchronize];
+}
+
+// =====================================================================
+// DÒ TÌM WINDOW SCENE HOẠT ĐỘNG TRÊN CÁC ĐỜI IOS
 // =====================================================================
 static UIWindowScene* getActiveWindowScene() {
     if (@available(iOS 13.0, *)) {
@@ -111,7 +167,7 @@ static UIWindow* getActiveKeyWindow() {
 }
 
 // =====================================================================
-// LỚP ĐIỀU KHIỂN GIAO DIỆN MENU CHÍNH (ĐÃ SỬA LỖI ĐỊNH VỊ)
+// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH (VIEW CONTROLLER)
 // =====================================================================
 @interface HuyMenuController : UIViewController <UITextFieldDelegate>
 @property (nonatomic, strong) UIView *sidebar;
@@ -128,24 +184,27 @@ static UIWindow* getActiveKeyWindow() {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
-    // Đặt màu mặc định ban đầu
-    menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0]; // Cam neon
-    espColor = [UIColor redColor];
+    // Tự động load lại cấu hình đã lưu
+    loadSavedModSettings();
     
-    // Khởi tạo Khung chứa Menu (Toạ độ tâm sẽ được cập nhật chuẩn xác trong viewWillLayoutSubviews)
+    // Khởi tạo màu sắc chủ đạo
+    [self updateThemeColors];
+    
+    // Khung chứa Menu chính
     menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 580, 320)];
+    menuContainer.center = self.view.center;
     menuContainer.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.96];
     menuContainer.layer.borderWidth = 1.5;
     menuContainer.layer.borderColor = menuAccentColor.CGColor;
     [self updateMenuContainerStyle];
     [self.view addSubview:menuContainer];
     
-    // Kéo thả Menu
+    // Thêm cử chỉ kéo thả di chuyển menu
     UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
     [menuContainer addGestureRecognizer:panDrag];
     
     // -----------------------------------------------------------------
-    // GIAO DIỆN NHẬP KEY BAN ĐẦU (AUTH PANEL)
+    // GIAO DIỆN NHẬP KEY (AUTH PANEL)
     // -----------------------------------------------------------------
     authPanel = [[UIView alloc] initWithFrame:menuContainer.bounds];
     authPanel.backgroundColor = [UIColor clearColor];
@@ -185,7 +244,6 @@ static UIWindow* getActiveKeyWindow() {
     [submitBtn setTitle:isVietnamese ? @"KÍCH HOẠT THỜI GIAN THỰC" : @"ACTIVATE NOW" forState:UIControlStateNormal];
     [submitBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     submitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-    
     [submitBtn addTarget:self action:@selector(verifyLicenseKeyOnFirebase) forControlEvents:UIControlEventTouchUpInside];
     [authPanel addSubview:submitBtn];
     
@@ -207,7 +265,7 @@ static UIWindow* getActiveKeyWindow() {
     [authPanel addSubview:closeAuthBtn];
     
     // -----------------------------------------------------------------
-    // PANEL MENU CHÍNH (MAIN MOD SCREEN) - ẨN MẶC ĐỊNH CHỜ KEY
+    // PANEL MENU MOD CHÍNH
     // -----------------------------------------------------------------
     mainModPanel = [[UIView alloc] initWithFrame:menuContainer.bounds];
     mainModPanel.backgroundColor = [UIColor clearColor];
@@ -245,7 +303,7 @@ static UIWindow* getActiveKeyWindow() {
     
     [self buildSidebarTabs];
     
-    // Tự động khôi phục Key đã lưu
+    // Kiểm tra và khôi phục trạng thái Key
     NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"huy_saved_activation_key"];
     if (savedKey && savedKey.length > 0) {
         keyInputField.text = savedKey;
@@ -253,7 +311,6 @@ static UIWindow* getActiveKeyWindow() {
     }
 }
 
-// 🌟 FIX LỖI HIỂN THỊ CHÍ MẠNG: ĐƯA TÂM CONTAINER VỀ ĐÚNG GIỮA VIEW KHI MÀN HÌNH ĐÃ LAYOUT XONG
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
     CGRect bounds = self.view.bounds;
@@ -269,7 +326,7 @@ static UIWindow* getActiveKeyWindow() {
 }
 
 - (void)closeMenuWithAnimation {
-    [UIView animateWithDuration:0.25 animations:^{
+    [UIView animateWithDuration:0.2 animations:^{
         menuContainer.transform = CGAffineTransformMakeScale(0.7, 0.7);
         menuContainer.alpha = 0.0;
     } completion:^(BOOL finished) {
@@ -279,13 +336,31 @@ static UIWindow* getActiveKeyWindow() {
 
 + (void)openMenuWithAnimation {
     overlayMenuWindow.hidden = NO;
-    [overlayMenuWindow makeKeyAndVisible]; // Đảm bảo làm nổi bật cửa sổ
+    [overlayMenuWindow makeKeyAndVisible];
     menuContainer.transform = CGAffineTransformMakeScale(0.6, 0.6);
     menuContainer.alpha = 0.0;
-    [UIView animateWithDuration:0.3 delay:0.0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+    [UIView animateWithDuration:0.25 delay:0.0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseInOut animations:^{
         menuContainer.transform = CGAffineTransformIdentity;
         menuContainer.alpha = 1.0;
     } completion:nil];
+}
+
+- (void)updateThemeColors {
+    if (accentColorIndex == 0) {
+        menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0]; // Cam
+    } else if (accentColorIndex == 1) {
+        menuAccentColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.3 alpha:1.0]; // Xanh lá
+    } else {
+        menuAccentColor = [UIColor colorWithRed:0.0 green:0.47 blue:1.0 alpha:1.0]; // Xanh dương
+    }
+    
+    if (espColorIndex == 0) {
+        espColor = [UIColor redColor];
+    } else if (espColorIndex == 1) {
+        espColor = [UIColor greenColor];
+    } else {
+        espColor = [UIColor yellowColor];
+    }
 }
 
 - (void)updateMenuContainerStyle {
@@ -350,9 +425,7 @@ static UIWindow* getActiveKeyWindow() {
     [sender setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
 }
 
-// =====================================================================
-// KẾT NỐI VÀ XÁC THỰC LICENSE KEY TRÊN FIREBASE QUA REST API
-// =====================================================================
+// XÁC THỰC LICENSE KEY TRÊN DATABASE FIREBASE QUA REST API
 - (void)verifyLicenseKeyOnFirebase {
     NSString *inputKey = [keyInputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (inputKey.length == 0) {
@@ -397,7 +470,6 @@ static UIWindow* getActiveKeyWindow() {
                 return;
             }
             
-            // Kích hoạt thành công rực rỡ
             isKeyValidated = YES;
             currentActiveKey = inputKey;
             usernameInfo = username;
@@ -454,7 +526,7 @@ static UIWindow* getActiveKeyWindow() {
 
 - (void)showToast:(NSString *)msg {
     UILabel *toast = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 320, 35)];
-    toast.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height - 50);
+    toast.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height - 40);
     toast.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.9];
     toast.textColor = [UIColor whiteColor];
     toast.textAlignment = NSTextAlignmentCenter;
@@ -474,7 +546,7 @@ static UIWindow* getActiveKeyWindow() {
 }
 
 // =====================================================================
-// VẼ NỘI DUNG TẤT CẢ CÁC TAB
+// VẼ NỘI DUNG TẤT CẢ CÁC TAB - LIÊN KẾT CHUẨN ĐỒNG BỘ 100% CÁC BIẾN CHẠY NGẦM
 // =====================================================================
 - (void)renderActiveTabScreen:(NSInteger)idx {
     for (UIView *sub in self.scrollView.subviews) {
@@ -484,7 +556,7 @@ static UIWindow* getActiveKeyWindow() {
     CGFloat y = 10;
     
     if (idx == 0) {
-        // TAB 0: AIMBOT
+        // TAB 0: AIMBOT TỰ ĐỘNG KHÓA
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"MỤC TIÊU & AIMBOT" : @"AIMBOT LOCATIONS"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -505,8 +577,6 @@ static UIWindow* getActiveKeyWindow() {
         UISegmentedControl *posSeg = [[UISegmentedControl alloc] initWithItems:@[@"Đầu", @"Cổ", @"Ngực", @"Bụng"]];
         posSeg.frame = CGRectMake(160, y, 230, 30);
         posSeg.selectedSegmentIndex = [aimTargetPosition isEqualToString:@"Đầu"] ? 0 : ([aimTargetPosition isEqualToString:@"Cổ"] ? 1 : ([aimTargetPosition isEqualToString:@"Ngực"] ? 2 : 3));
-        
-        // 🌟 ĐÃ FIX CHUẨN XÁC: ĐẢM BẢO DÙNG ĐÚNG ĐỊNH DANH HỆ THỐNG ĐỂ COMPILER KHÔNG BỊ CRASH
         if (@available(iOS 13.0, *)) {
             posSeg.selectedSegmentTintColor = menuAccentColor;
         }
@@ -558,7 +628,7 @@ static UIWindow* getActiveKeyWindow() {
         y += 75;
         
     } else if (idx == 1) {
-        // TAB 1: ESP
+        // TAB 1: ESP HIỂN THỊ
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"XUYÊN TƯỜNG ĐỊNH VỊ (ESP)" : @"WALL ESP CONFIGURATION"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -577,14 +647,14 @@ static UIWindow* getActiveKeyWindow() {
         [self.scrollView addSubview:espLin];
         y += 55;
         
-        UIView *espBox = [self buildSwitchRow:isVietnamese ? @"Vẽ Hộp 3D (Boxes)" : @"Draw Object Boxes" state:isEspBoxes action:^(BOOL isOn) {
+        UIView *espBox = [self buildSwitchRow:isVietnamese ? @"Vẽ Hộp 3D (Boxes)" : @"ESP Boxes" state:isEspBoxes action:^(BOOL isOn) {
             isEspBoxes = isOn;
         }];
         espBox.frame = CGRectMake(0, y, 410, 45);
         [self.scrollView addSubview:espBox];
         y += 55;
         
-        UIView *espSke = [self buildSwitchRow:isVietnamese ? @"Dựng khung xương bà ngoại" : @"Draw Granny Skeleton" state:isEspSkeleton action:^(BOOL isOn) {
+        UIView *espSke = [self buildSwitchRow:isVietnamese ? @"Vẽ khung xương (Skeleton)" : @"ESP Skeleton" state:isEspSkeleton action:^(BOOL isOn) {
             isEspSkeleton = isOn;
         }];
         espSke.frame = CGRectMake(0, y, 410, 45);
@@ -617,7 +687,7 @@ static UIWindow* getActiveKeyWindow() {
         y += 75;
         
     } else if (idx == 2) {
-        // TAB 2: CHỨC NĂNG CHÍNH
+        // TAB 2: CHỨC NĂNG
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"TINH CHỈNH NHÂN VẬT & GAME" : @"CHARACTER & GAMEPLAY MOD"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -786,9 +856,21 @@ static UIWindow* getActiveKeyWindow() {
         [card addSubview:countdownLabel];
         
         [self.scrollView addSubview:card];
-        y += 200;
+        y += 195;
         
         [self updateCountdownRealtime];
+        
+        // 🌟 NÚT LƯU SETTING THEO YÊU CẦU CỦA SẾP HUY
+        UIButton *saveSettingsBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        saveSettingsBtn.frame = CGRectMake(10, y, 380, 45);
+        saveSettingsBtn.backgroundColor = menuAccentColor;
+        saveSettingsBtn.layer.cornerRadius = 8;
+        [saveSettingsBtn setTitle:isVietnamese ? @"💾 LƯU CẤU HÌNH MOD HIỆN TẠI" : @"💾 SAVE CURRENT SETTINGS" forState:UIControlStateNormal];
+        [saveSettingsBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        saveSettingsBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+        [saveSettingsBtn addTarget:self action:@selector(saveSettingsAction) forControlEvents:UIControlEventTouchUpInside];
+        [self.scrollView addSubview:saveSettingsBtn];
+        y += 55;
         
         UIButton *unlinkBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         unlinkBtn.frame = CGRectMake(10, y, 380, 45);
@@ -805,6 +887,12 @@ static UIWindow* getActiveKeyWindow() {
     }
     
     self.scrollView.contentSize = CGSizeMake(410, y + 20);
+}
+
+// Hàm lưu cấu hình thủ công
+- (void)saveSettingsAction {
+    saveAllModSettingsToDevice();
+    [self showToast:isVietnamese ? @"Đã lưu toàn bộ thiết lập mod thành công!" : @"All configurations successfully saved!"];
 }
 
 - (void)unlinkKeyAction {
@@ -860,9 +948,7 @@ static UIWindow* getActiveKeyWindow() {
 
 - (void)espColorChanged:(UISegmentedControl *)sender {
     espColorIndex = sender.selectedSegmentIndex;
-    if (espColorIndex == 0) espColor = [UIColor redColor];
-    else if (espColorIndex == 1) espColor = [UIColor greenColor];
-    else espColor = [UIColor yellowColor];
+    [self updateThemeColors];
 }
 
 - (void)langSegChanged:(UISegmentedControl *)sender {
@@ -873,10 +959,7 @@ static UIWindow* getActiveKeyWindow() {
 
 - (void)themeSegChanged:(UISegmentedControl *)sender {
     accentColorIndex = sender.selectedSegmentIndex;
-    if (accentColorIndex == 0) menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0]; // Cam
-    else if (accentColorIndex == 1) menuAccentColor = [UIColor greenColor];
-    else menuAccentColor = [UIColor colorWithRed:0.0 green:0.47 blue:1.0 alpha:1.0]; // Xanh dương
-    
+    [self updateThemeColors];
     menuContainer.layer.borderColor = menuAccentColor.CGColor;
     [self buildSidebarTabs];
     [self renderActiveTabScreen:2];
@@ -1074,8 +1157,8 @@ static UIWindow* getActiveKeyWindow() {
         UIWindow *activeWin = getActiveKeyWindow();
         if (activeWin) {
             UITapGestureRecognizer *tripleFingerDoubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleHiddenTripleFingerTap:)];
-            tripleFingerDoubleTap.numberOfTouchesRequired = 3; // 3 ngón tay
-            tripleFingerDoubleTap.numberOfTapsRequired = 2;    // Gõ 2 lần
+            tripleFingerDoubleTap.numberOfTouchesRequired = 3; // Đúng 3 ngón tay như sếp Huy yêu cầu!
+            tripleFingerDoubleTap.numberOfTapsRequired = 2;    // Đúng 2 lần nhấp!
             [activeWin addGestureRecognizer:tripleFingerDoubleTap];
         }
     });
@@ -1116,6 +1199,7 @@ static UIWindow* getActiveKeyWindow() {
 // KHỞI CHẠY TỨC THÌ KHÔNG PHỤ THUỘC VÀO TRỄ THỜI GIAN LOAD APP
 // =====================================================================
 __attribute__((constructor)) static void initialize() {
+    loadSavedModSettings();
     if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
         [HuyMenuInitializer tryInitializeUI];
     } else {
@@ -1127,3 +1211,4 @@ __attribute__((constructor)) static void initialize() {
         }];
     }
 }
+
