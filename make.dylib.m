@@ -26,6 +26,7 @@ static float aimFOV = 150.0f;
 static UIWindow *menuWindow = nil;
 static UIView *menuContainer = nil;
 static int currentTab = 0;
+static UIViewController *menuVC = nil;
 
 // ====== LƯU CẤU HÌNH ======
 static void saveSettings() {
@@ -98,23 +99,27 @@ static void resetAllFeatures() {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
+    self.view.userInteractionEnabled = YES;
     
+    // Nền đen mờ
     UIView *dimView = [[UIView alloc] initWithFrame:self.view.bounds];
-    dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
+    dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
     dimView.userInteractionEnabled = YES;
     [self.view addSubview:dimView];
     
-    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(30, 60, 340, 520)];
-    menuContainer.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.95];
+    // Tạo menu ở giữa màn hình
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(30, 80, 340, 500)];
+    menuContainer.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.95];
     menuContainer.layer.cornerRadius = 16;
-    menuContainer.layer.borderWidth = 1.5;
-    menuContainer.layer.borderColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.6].CGColor;
+    menuContainer.layer.borderWidth = 2;
+    menuContainer.layer.borderColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8].CGColor;
     menuContainer.clipsToBounds = YES;
+    menuContainer.userInteractionEnabled = YES;
     [self.view addSubview:menuContainer];
     
     // HEADER
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 340, 50)];
-    header.backgroundColor = [UIColor colorWithRed:0.12 green:0.04 blue:0.04 alpha:1];
+    header.backgroundColor = [UIColor colorWithRed:0.15 green:0.05 blue:0.05 alpha:1];
     [menuContainer addSubview:header];
     
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(15, 10, 200, 30)];
@@ -145,12 +150,15 @@ static void resetAllFeatures() {
     }
     
     // CONTENT
-    UIView *contentArea = [[UIView alloc] initWithFrame:CGRectMake(10, 95, 320, 370)];
+    UIView *contentArea = [[UIView alloc] initWithFrame:CGRectMake(10, 95, 320, 350)];
     contentArea.tag = 999;
     contentArea.backgroundColor = [UIColor clearColor];
+    contentArea.userInteractionEnabled = YES;
     [menuContainer addSubview:contentArea];
     
     [self loadTab:currentTab];
+    
+    NSLog(@"✅ Menu loaded successfully!");
 }
 
 - (void)tabPressed:(UIButton *)sender {
@@ -436,10 +444,12 @@ void showMenu() {
             menuWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
             menuWindow.windowLevel = UIWindowLevelAlert + 1;
             menuWindow.backgroundColor = [UIColor clearColor];
-            menuWindow.rootViewController = [[GrannyModMenuVC alloc] init];
             menuWindow.userInteractionEnabled = YES;
+            menuWindow.hidden = NO;
+            menuWindow.rootViewController = [[GrannyModMenuVC alloc] init];
         }
         menuWindow.hidden = NO;
+        NSLog(@"📱 Menu opened!");
     });
 }
 
@@ -450,8 +460,13 @@ static void setupGestures() {
         if (!win) {
             win = [[[UIApplication sharedApplication] windows] firstObject];
         }
-        if (!win) return;
+        if (!win) {
+            // Tạo cửa sổ mới nếu không có
+            win = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            win.hidden = NO;
+        }
         
+        // Xóa gesture cũ
         for (UIGestureRecognizer *gr in win.gestureRecognizers) {
             if ([gr isKindOfClass:[UITapGestureRecognizer class]]) {
                 UITapGestureRecognizer *tap = (UITapGestureRecognizer *)gr;
@@ -461,11 +476,14 @@ static void setupGestures() {
             }
         }
         
+        // Tạo gesture mới
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(showMenu)];
         tap.numberOfTouchesRequired = 3;
         tap.numberOfTapsRequired = 2;
         tap.cancelsTouchesInView = NO;
         [win addGestureRecognizer:tap];
+        
+        NSLog(@"👆 Gesture ready: 3 fingers, 2 taps");
     });
 }
 
@@ -479,6 +497,10 @@ static void new_applicationDidFinishLaunching(id self, SEL cmd, UIApplication *a
     resetAllFeatures();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         setupGestures();
+        // Mở menu test sau 3 giây
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            showMenu();
+        });
     });
 }
 
@@ -494,6 +516,7 @@ static void new_Awake(id self, SEL cmd) {
 
 // ====== CONSTRUCTOR ======
 __attribute__((constructor)) static void init() {
+    NSLog(@"🔥 Granny Mod initializing...");
     loadSettings();
     resetAllFeatures();
     
@@ -517,7 +540,9 @@ __attribute__((constructor)) static void init() {
         }
     }
     
+    // Tự động mở menu sau 3 giây để test
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         setupGestures();
+        showMenu(); // TỰ ĐỘNG MỞ MENU SAU 3 GIÂY
     });
 }
