@@ -1,114 +1,34 @@
-name: Build dylib
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+name: Build Mod Menu iOS
+
+on: [push]
 
 jobs:
   build:
     runs-on: macos-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    - name: Lay code ve may ao
+      uses: actions/checkout@v4
     
-    - name: Install Theos
+    - name: Compile dylib
       run: |
-        git clone --recursive https://github.com/theos/theos.git $HOME/theos
-        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-        echo "$HOME/theos/bin" >> $GITHUB_PATH
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         
-    - name: Install dependencies
-      run: |
-        brew install ldid xz
-        sudo ln -sf /usr/bin/ldid /usr/local/bin/ldid
-        
-    - name: Setup iOS SDK
-      run: |
-        git clone https://github.com/theos/sdks.git $HOME/theos/sdks
-        
-    - name: Create Makefile
-      run: |
-        cat > Makefile << 'EOF'
-        ARCHS = arm64 arm64e
-        TARGET = iphone:clang:14.5:14.0
-        INSTALL_TARGET_PROCESSES = Granny
-        
-        include $(THEOS)/makefiles/common.mk
-        
-        TWEAK_NAME = GrannyMod
-        GrannyMod_FILES = Tweak.xm make.dylib.m
-        GrannyMod_CFLAGS = -fobjc-arc -std=c++11
-        GrannyMod_CPPFLAGS = -std=c++11
-        GrannyMod_FRAMEWORKS = UIKit CoreGraphics QuartzCore OpenGLES
-        GrannyMod_LDFLAGS = -lc++ -lz
-        
-        include $(THEOS_MAKE_PATH)/tweak.mk
-        
-        after-package::
-          cp -f .theos/_/Library/MobileSubstrate/DynamicLibraries/GrannyMod.dylib ./GrannyMod.dylib
-          @echo "✅ Build successful!"
-        EOF
-        
-    - name: Create Tweak.xm
-      run: |
-        cat > Tweak.xm << 'EOF'
-        #import <UIKit/UIKit.h>
-        #import "make.dylib.m"
-        
-        %hook UnityAppController
-        - (void)applicationDidFinishLaunching:(UIApplication *)application {
-            %orig;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-                if (!keyWindow) {
-                    keyWindow = [[[UIApplication sharedApplication] windows] firstObject];
-                }
-                GrannyMod *menu = [[GrannyMod alloc] initWithFrame:keyWindow.bounds];
-                menu.backgroundColor = [UIColor clearColor];
-                [keyWindow addSubview:menu];
-                NSLog(@"✅ GrannyMod loaded!");
-            });
-        }
-        %end
-        
-        %hook GameManager
-        - (void)Awake {
-            %orig;
-            NSLog(@"🎮 GameManager Awake");
-        }
-        %end
-        EOF
-        
-    - name: Create control file
-      run: |
-        mkdir -p layout/DEBIAN
-        cat > layout/DEBIAN/control << 'EOF'
-        Package: com.yourname.grannymod
-        Name: GrannyMod
-        Version: 1.0.0
-        Architecture: iphoneos-arm
-        Description: Menu hack cho Granny
-        Maintainer: YourName
-        Author: YourName
-        Section: Tweaks
-        Depends: firmware (>= 13.0)
-        EOF
-        
-    - name: Build
-      run: |
-        export THEOS=$HOME/theos
-        export TARGET=iphone:clang:14.5:14.0
-        make clean
-        make package
-        
-    - name: Upload dylib
+        # Biên dịch dylib bằng Clang
+        clang -dynamiclib -arch arm64 \
+          -isysroot $SDK \
+          -fobjc-arc \
+          -miphoneos-version-min=13.0 \
+          -framework UIKit \
+          -framework Foundation \
+          -framework CoreGraphics \
+          -framework QuartzCore \
+          -undefined dynamic_lookup \
+          -o GrannyModMenu.dylib make.dylib.m
+          
+    - name: Tai file dylib len de nguoi dung download
       uses: actions/upload-artifact@v4
       with:
-        name: GrannyMod
-        path: |
-          GrannyMod.dylib
-          packages/*.deb
+        name: GrannyModMenu-iOS
+        path: GrannyModMenu.dylib
+
