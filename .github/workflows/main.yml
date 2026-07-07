@@ -1,0 +1,35 @@
+```yaml
+name: Build dylib
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+    - name: Lay code ve may ao
+      uses: actions/checkout@v4
+    
+    - name: Compile dylib
+      run: |
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        
+        # Biên dịch dylib bằng Clang
+        clang -dynamiclib -arch arm64 \
+          -isysroot $SDK \
+          -fobjc-arc \
+          -miphoneos-version-min=13.0 \
+          -framework UIKit \
+          -framework Foundation \
+          -framework CoreGraphics \
+          -framework QuartzCore \
+          -undefined dynamic_lookup \
+          -o GrannyModMenu.dylib make.dylib.m
+          
+    - name: Tai file dylib len de nguoi dung download
+      uses: actions/upload-artifact@v4
+      with:
+        name: GrannyModMenu-iOS
+        path: GrannyModMenu.dylib
+
+```
