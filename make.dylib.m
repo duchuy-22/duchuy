@@ -24,7 +24,7 @@ static NSString *const FIREBASE_DB_URL = @"https://duchuy-75d5d-default-rtdb.fir
 static NSString *const APP_ID = @"granny_v1_vip";
 
 // =====================================================================
-// BIẾN TRẠNG THÁI TOÀN CỤC - LUÔN SỐNG SÓT KHI ĐÓNG/MỞ MENU
+// BIẾN TRẠNG THÁI TOÀN CỤC CỦA HỆ THỐNG MENU MOD (ĐẢM BẢO CHẠY NGẦM LIÊN TỤC)
 // =====================================================================
 static BOOL isKeyValidated = NO;
 static NSString *currentActiveKey = @"";
@@ -71,6 +71,17 @@ static UILabel *countdownLabel = nil;
 static UILabel *userLabel = nil;
 static UILabel *keyDisplayLabel = nil;
 static CAShapeLayer *fovCircleLayer = nil;
+
+// Forward Declaration
+@interface HuyMenuController : UIViewController <UITextFieldDelegate>
+@property (nonatomic, strong) UIView *sidebar;
+@property (nonatomic, strong) UIView *contentArea;
+@property (nonatomic, strong) UIScrollView *scrollView;
+@property (nonatomic, strong) UIButton *activeTabButton;
++ (void)drawFovCircleOnScreen;
++ (void)openMenuWithAnimation;
++ (void)toggleMenuGlobal;
+@end
 
 // =====================================================================
 // HÀM ĐỒNG BỘ & LƯU TRỮ CẤU HÌNH VÀO THIẾT BỊ (SAVE/LOAD SETTINGS)
@@ -167,24 +178,66 @@ static UIWindow* getActiveKeyWindow() {
 }
 
 // =====================================================================
-// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH (VIEW CONTROLLER)
+// ĐIỀU PHỐI CỬ CHỈ GÕ CHẠY SONG SONG CHỐNG NUỐT CỦA WEBVIEW/GAME
 // =====================================================================
-@interface HuyMenuController : UIViewController <UITextFieldDelegate>
-@property (nonatomic, strong) UIView *sidebar;
-@property (nonatomic, strong) UIView *contentArea;
-@property (nonatomic, strong) UIScrollView *scrollView;
-@property (nonatomic, strong) UIButton *activeTabButton;
-+ (void)drawFovCircleOnScreen;
-+ (void)openMenuWithAnimation;
+@interface HuyGestureDelegate : NSObject <UIGestureRecognizerDelegate>
++ (instancetype)sharedInstance;
+- (void)attachGestureToWindow:(UIWindow *)window;
 @end
 
+@implementation HuyGestureDelegate
+
++ (instancetype)sharedInstance {
+    static HuyGestureDelegate *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[HuyGestureDelegate alloc] init];
+    });
+    return instance;
+}
+
+- (void)attachGestureToWindow:(UIWindow *)window {
+    if (!window) return;
+    
+    // Ép cửa sổ chính và RootView cho phép chạm đa điểm (Multi-touch)
+    window.multipleTouchEnabled = YES;
+    if (window.rootViewController && window.rootViewController.view) {
+        window.rootViewController.view.multipleTouchEnabled = YES;
+    }
+    
+    UITapGestureRecognizer *tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTripleFingerTap:)];
+    tapGesture.numberOfTouchesRequired = 3; // Đúng 3 ngón tay như sếp Huy yêu cầu!
+    tapGesture.numberOfTapsRequired = 2;    // Đúng 2 lần nhấp!
+    tapGesture.cancelsTouchesInView = NO;   // Không bao giờ nuốt cảm ứng của game hay WebView khác!
+    tapGesture.delaysTouchesBegan = NO;     // Phản hồi lập tức không trễ
+    tapGesture.delegate = self;             // Chạy luồng song song thông qua Delegate
+    
+    [window addGestureRecognizer:tapGesture];
+}
+
+// Hàm cực kỳ quan trọng lách qua sự ngăn chặn của WebView và Game Engine:
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES; // Ép hệ thống chạy song song đồng thời với tất cả các thao tác khác!
+}
+
+- (void)handleTripleFingerTap:(UITapGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateEnded) {
+        [HuyMenuController toggleMenuGlobal];
+    }
+}
+
+@end
+
+// =====================================================================
+// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH (VIEW CONTROLLER)
+// =====================================================================
 @implementation HuyMenuController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
-    // Tải cấu hình cũ
+    // Tải cấu hình
     loadSavedModSettings();
     [self updateThemeColors];
     
@@ -342,6 +395,20 @@ static UIWindow* getActiveKeyWindow() {
     } completion:nil];
 }
 
++ (void)toggleMenuGlobal {
+    if (overlayMenuWindow.hidden) {
+        [HuyMenuController openMenuWithAnimation];
+        [HuyMenuController drawFovCircleOnScreen];
+    } else {
+        [UIView animateWithDuration:0.2 animations:^{
+            menuContainer.transform = CGAffineTransformMakeScale(0.7, 0.7);
+            menuContainer.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            overlayMenuWindow.hidden = YES;
+        }];
+    }
+}
+
 - (void)updateThemeColors {
     if (accentColorIndex == 0) {
         menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0]; // Cam
@@ -422,7 +489,7 @@ static UIWindow* getActiveKeyWindow() {
     [sender setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
 }
 
-// XÁC THỰC KEY QUA FIREBASE REALTIME DATABASE (REST API)
+// XÁC THỰC LICENSE KEY TRÊN DATABASE FIREBASE QUA REST API
 - (void)verifyLicenseKeyOnFirebase {
     NSString *inputKey = [keyInputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (inputKey.length == 0) {
@@ -467,7 +534,6 @@ static UIWindow* getActiveKeyWindow() {
                 return;
             }
             
-            // Đăng nhập thành công
             isKeyValidated = YES;
             currentActiveKey = inputKey;
             usernameInfo = username;
@@ -554,7 +620,7 @@ static UIWindow* getActiveKeyWindow() {
     CGFloat y = 10;
     
     if (idx == 0) {
-        // TAB 0: AIMBOT TỰ ĐỘNG KHÓA
+        // TAB 0: AIMBOT
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"MỤC TIÊU & AIMBOT" : @"AIMBOT LOCATIONS"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -887,9 +953,10 @@ static UIWindow* getActiveKeyWindow() {
     self.scrollView.contentSize = CGSizeMake(410, y + 20);
 }
 
+// Hàm lưu cấu hình thủ công
 - (void)saveSettingsAction {
     saveAllModSettingsToDevice();
-    [self showToast:isVietnamese ? @"Đã lưu thiết lập mod thành công!" : @"All configurations successfully saved!"];
+    [self showToast:isVietnamese ? @"Đã lưu toàn bộ thiết lập thành công!" : @"All configurations successfully saved!"];
 }
 
 - (void)unlinkKeyAction {
@@ -1092,7 +1159,7 @@ static UIWindow* getActiveKeyWindow() {
         
         if (@available(iOS 13.0, *)) {
             scene = getActiveWindowScene();
-            // Nếu App chưa vẽ xong Scene, đợi thêm 0.5s rồi khởi tạo lại để bảo đảm hiện được nút
+            // Nếu App chưa vẽ xong Scene, đợi thêm 0.5s rồi khởi tạo lại để chống nuốt menu
             if (!scene) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     [HuyMenuInitializer tryInitializeUI];
@@ -1101,7 +1168,7 @@ static UIWindow* getActiveKeyWindow() {
             }
         }
         
-        // Tạo cửa sổ chứa Menu chính ẩn mặc định
+        // Khởi tạo Window chứa toàn bộ Panel Menu chính
         if (@available(iOS 13.0, *)) {
             overlayMenuWindow = [[UIWindow alloc] initWithWindowScene:scene];
         } else {
@@ -1109,37 +1176,18 @@ static UIWindow* getActiveKeyWindow() {
         }
         overlayMenuWindow.frame = [UIScreen mainScreen].bounds;
         overlayMenuWindow.backgroundColor = [UIColor clearColor];
-        overlayMenuWindow.windowLevel = UIWindowLevelAlert + 1000; // Đặt cấp độ cao nhất đè lên mọi WebView
+        overlayMenuWindow.windowLevel = UIWindowLevelAlert + 1000; // Đè lên mức tối đa của WebView/Game
         
         HuyMenuController *controller = [[HuyMenuController alloc] init];
         overlayMenuWindow.rootViewController = controller;
         overlayMenuWindow.hidden = YES;
         
-        // 🌟 CỬ CHỈ GÕ 3 NGÓN TAY 2 LẦN ĐỂ BẬT/TẮT MENU NHƯ SẾP YÊU CẦU
+        // 🌟 GÁN CỬ CHỈ GÕ 3 NGÓN TAY VỚI THUẬT TOÁN ĐỒNG BỘ SONG SONG
         UIWindow *activeWin = getActiveKeyWindow();
         if (activeWin) {
-            UITapGestureRecognizer *tripleFingerDoubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleHiddenTripleFingerTap:)];
-            tripleFingerDoubleTap.numberOfTouchesRequired = 3; // Đúng 3 ngón tay
-            tripleFingerDoubleTap.numberOfTapsRequired = 2;    // Đúng 2 lần nhấp
-            [activeWin addGestureRecognizer:tripleFingerDoubleTap];
+            [[HuyGestureDelegate sharedInstance] attachGestureToWindow:activeWin];
         }
     });
-}
-
-+ (void)handleHiddenTripleFingerTap:(UITapGestureRecognizer *)gesture {
-    if (gesture.state == UIGestureRecognizerStateEnded) {
-        if (overlayMenuWindow.hidden) {
-            [HuyMenuController openMenuWithAnimation];
-            [HuyMenuController drawFovCircleOnScreen];
-        } else {
-            [UIView animateWithDuration:0.2 animations:^{
-                menuContainer.transform = CGAffineTransformMakeScale(0.7, 0.7);
-                menuContainer.alpha = 0.0;
-            } completion:^(BOOL finished) {
-                overlayMenuWindow.hidden = YES;
-            }];
-        }
-    }
 }
 
 @end
@@ -1160,4 +1208,3 @@ __attribute__((constructor)) static void initialize() {
         }];
     }
 }
-
