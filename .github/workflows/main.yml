@@ -13,7 +13,7 @@ jobs:
       run: |
         SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         
-        # Biên dịch dylib bằng Clang
+        # Biên dịch dylib bằng Clang ho tro iOS 13+
         clang -dynamiclib -arch arm64 \
           -isysroot $SDK \
           -fobjc-arc \
