@@ -73,6 +73,21 @@ static UILabel *keyDisplayLabel = nil;
 static CAShapeLayer *fovCircleLayer = nil;
 
 // =====================================================================
+// HOOK GAME - BIẾN TOÀN CỤC
+// =====================================================================
+static Class grannyClass = nil;
+static Class playerClass = nil;
+static Class cameraClass = nil;
+
+static float (*orig_GetHealth)(id self, SEL cmd);
+static float (*orig_GetSpeed)(id self, SEL cmd);
+static float (*orig_GetFOV)(id self, SEL cmd);
+static void (*orig_Update)(id self, SEL cmd);
+static void (*orig_OnRenderObject)(id self, SEL cmd);
+
+static void (*orig_UIWindow_sendEvent)(id, SEL, UIEvent *);
+
+// =====================================================================
 // LỚP HuyGestureDelegate - XỬ LÝ CỬ CHỈ 3 NGÓN
 // =====================================================================
 @interface HuyGestureDelegate : NSObject <UIGestureRecognizerDelegate>
@@ -234,8 +249,6 @@ static UIWindow* getActiveKeyWindow() {
 // =====================================================================
 // HOOK GIAO DIỆN PHÁT SỰ KIỆN GỐC - CHỐNG NUỐT CỬ CHỈ CỦA TRÌNH DUYỆT WEB
 // =====================================================================
-static void (*orig_UIWindow_sendEvent)(id, SEL, UIEvent *);
-
 static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) {
     if (event.type == UIEventTypeTouches) {
         NSSet *touches = [event allTouches];
@@ -1263,6 +1276,145 @@ static void saveAllModSettingsToDevice() {
 @end
 
 // =====================================================================
+// ====== HOOK GAME - THÊM VÀO CUỐI FILE =============================
+// =====================================================================
+
+// Tìm class game
+static void findGameClasses() {
+    grannyClass = objc_getClass("GrannyAI");
+    if (!grannyClass) grannyClass = objc_getClass("GrannyCharacter");
+    if (!grannyClass) grannyClass = objc_getClass("EnemyAI");
+    if (!grannyClass) grannyClass = objc_getClass("AIController");
+    if (!grannyClass) grannyClass = objc_getClass("Granny");
+    
+    playerClass = objc_getClass("PlayerController");
+    if (!playerClass) playerClass = objc_getClass("FPSController");
+    if (!playerClass) playerClass = objc_getClass("CharacterController");
+    if (!playerClass) playerClass = objc_getClass("Player");
+    
+    cameraClass = objc_getClass("CameraController");
+    if (!cameraClass) cameraClass = objc_getClass("FirstPersonCamera");
+    if (!cameraClass) cameraClass = objc_getClass("Camera");
+    
+    NSLog(@"🔥 Found: Granny=%@, Player=%@, Camera=%@", grannyClass, playerClass, cameraClass);
+}
+
+// Hook functions
+static float new_GetHealth(id self, SEL cmd) {
+    if (isGodMode) return 9999.0f;
+    if (orig_GetHealth) return orig_GetHealth(self, cmd);
+    return 100.0f;
+}
+
+static float new_GetSpeed(id self, SEL cmd) {
+    float speed = 1.0f;
+    if (orig_GetSpeed) speed = orig_GetSpeed(self, cmd);
+    if (isHighSpeed) return speed * 3.0f;
+    return speed;
+}
+
+static float new_GetFOV(id self, SEL cmd) {
+    if (cameraFov > 60.0f) return cameraFov;
+    if (orig_GetFOV) return orig_GetFOV(self, cmd);
+    return 60.0f;
+}
+
+static void new_Update(id self, SEL cmd) {
+    if (orig_Update) orig_Update(self, cmd);
+    if (isAimbotActive && grannyClass) {
+        id unityEngine = NSClassFromString(@"UnityEngine");
+        if (unityEngine) {
+            SEL findSel = NSSelectorFromString(@"FindObjectsOfType:");
+            if ([unityEngine respondsToSelector:findSel]) {
+                NSArray *grannies = [unityEngine performSelector:findSel withObject:grannyClass];
+                if (grannies && grannies.count > 0) {
+                    id granny = grannies[0];
+                    SEL transformSel = NSSelectorFromString(@"get_transform");
+                    SEL posSel = NSSelectorFromString(@"get_position");
+                    if ([granny respondsToSelector:transformSel]) {
+                        id transform = [granny performSelector:transformSel];
+                        if (transform && [transform respondsToSelector:posSel]) {
+                            id position = [transform performSelector:posSel];
+                            if ([self respondsToSelector:NSSelectorFromString(@"LookAt:")]) {
+                                [self performSelector:NSSelectorFromString(@"LookAt:") withObject:position];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void new_OnRenderObject(id self, SEL cmd) {
+    if (orig_OnRenderObject) orig_OnRenderObject(self, cmd);
+    if (isEspActive && grannyClass) {
+        // ESP drawing code
+    }
+}
+
+// Áp dụng hook
+static void applyGameHooks() {
+    findGameClasses();
+    
+    if (playerClass) {
+        SEL sel = NSSelectorFromString(@"GetHealth");
+        if (!sel) sel = NSSelectorFromString(@"getHealth");
+        if (!sel) sel = NSSelectorFromString(@"health");
+        Method m = class_getInstanceMethod(playerClass, sel);
+        if (m) {
+            orig_GetHealth = (void *)method_getImplementation(m);
+            method_setImplementation(m, (IMP)new_GetHealth);
+            NSLog(@"✅ Hooked GetHealth");
+        }
+    }
+    
+    if (playerClass) {
+        SEL sel = NSSelectorFromString(@"GetSpeed");
+        if (!sel) sel = NSSelectorFromString(@"getSpeed");
+        if (!sel) sel = NSSelectorFromString(@"speed");
+        Method m = class_getInstanceMethod(playerClass, sel);
+        if (m) {
+            orig_GetSpeed = (void *)method_getImplementation(m);
+            method_setImplementation(m, (IMP)new_GetSpeed);
+            NSLog(@"✅ Hooked GetSpeed");
+        }
+    }
+    
+    if (cameraClass) {
+        SEL sel = NSSelectorFromString(@"GetFOV");
+        if (!sel) sel = NSSelectorFromString(@"getFOV");
+        if (!sel) sel = NSSelectorFromString(@"fov");
+        Method m = class_getInstanceMethod(cameraClass, sel);
+        if (m) {
+            orig_GetFOV = (void *)method_getImplementation(m);
+            method_setImplementation(m, (IMP)new_GetFOV);
+            NSLog(@"✅ Hooked GetFOV");
+        }
+    }
+    
+    if (playerClass) {
+        SEL sel = NSSelectorFromString(@"Update");
+        Method m = class_getInstanceMethod(playerClass, sel);
+        if (m) {
+            orig_Update = (void *)method_getImplementation(m);
+            method_setImplementation(m, (IMP)new_Update);
+            NSLog(@"✅ Hooked Update");
+        }
+    }
+    
+    if (cameraClass) {
+        SEL sel = NSSelectorFromString(@"OnRenderObject");
+        Method m = class_getInstanceMethod(cameraClass, sel);
+        if (m) {
+            orig_OnRenderObject = (void *)method_getImplementation(m);
+            method_setImplementation(m, (IMP)new_OnRenderObject);
+            NSLog(@"✅ Hooked OnRenderObject");
+        }
+    }
+}
+
+// =====================================================================
 // KHỞI CHẠY LẬP TỨC KHI DYLIB ĐƯỢC TẢI VÀO GAME
 // =====================================================================
 __attribute__((constructor)) static void initialize() {
@@ -1284,4 +1436,10 @@ __attribute__((constructor)) static void initialize() {
             [HuyMenuInitializer tryInitializeUI];
         }];
     }
+    
+    // ====== GỌI HOOK GAME SAU 5 GIÂY ======
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        applyGameHooks();
+        NSLog(@"🔥 Game hooks applied!");
+    });
 }
