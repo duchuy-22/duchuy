@@ -1,4 +1,4 @@
-name: Build dylib
+name: Build Mod Menu iOS
 
 on: [push]
 
