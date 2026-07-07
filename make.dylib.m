@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 
 // =====================================================================
-// ĐỊNH NGHĨA CỨNG ĐỂ TRÁNH LỖI PHÂN GIẢI TRÊN MÁY ẢO GITHUB
+// ĐỊNH NGHĨA CỨNG CÁC ĐỊNH DANH ĐỂ TRÁNH LỖI PHÂN GIẢI TRÊN MÁY ẢO GITHUB
 // =====================================================================
 #ifndef UIControlStateNormal
 #define UIControlStateNormal 0
@@ -11,7 +11,10 @@
 #define UIControlStateSelected 4
 #endif
 #ifndef UIControlEventTouchUpInside
-#define UIControlEventTouchUpInside 1 << 6
+#define UIControlEventTouchUpInside (1 << 6)
+#endif
+#ifndef UIControlEventValueChanged
+#define UIControlEventValueChanged (1 << 12)
 #endif
 
 // =====================================================================
@@ -21,7 +24,7 @@ static NSString *const FIREBASE_DB_URL = @"https://duchuy-75d5d-default-rtdb.fir
 static NSString *const APP_ID = @"granny_v1_vip";
 
 // =====================================================================
-// BIẾN TRẠNG THÁI TOÀN CỤC (GLOBAL STATES)
+// BIẾN TRẠNG THÁI TOÀN CỤC CỦA HỆ THỐNG MENU MOD
 // =====================================================================
 static BOOL isKeyValidated = NO;
 static NSString *currentActiveKey = @"";
@@ -58,7 +61,7 @@ static BOOL isHighSpeed = NO;
 static float cameraFov = 60.0f;
 static NSString *selectedItemToSpawn = @"Shotgun";
 
-// Các phần tử giao diện (Tạo các Window riêng độc lập để WebView không nuốt được)
+// Các phần tử giao diện
 static UIWindow *floatingButtonWindow;
 static UIWindow *overlayMenuWindow;
 static UIView *menuContainer;
@@ -72,7 +75,7 @@ static CAShapeLayer *fovCircleLayer;
 static UIButton *floatingBtn;
 
 // =====================================================================
-// THUẬT TOÁN DÒ TÌM WINDOW SCENE HOẠT ĐỘNG ĐỂ LÁCH QUA BỘ LỌC IOS 13+
+// DÒ TÌM WINDOW SCENE HOẠT ĐỘNG TRÊN MỌI THIẾT BỊ IOS 13+
 // =====================================================================
 static UIWindowScene* getActiveWindowScene() {
     if (@available(iOS 13.0, *)) {
@@ -85,8 +88,30 @@ static UIWindowScene* getActiveWindowScene() {
     return nil;
 }
 
+static UIWindow* getActiveKeyWindow() {
+    UIWindow *activeWindow = nil;
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *scene = getActiveWindowScene();
+        if (scene) {
+            for (UIWindow *win in scene.windows) {
+                if (win.isKeyWindow) {
+                    activeWindow = win;
+                    break;
+                }
+            }
+        }
+    }
+    if (!activeWindow) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        activeWindow = [UIApplication sharedApplication].keyWindow;
+        #pragma clang diagnostic pop
+    }
+    return activeWindow;
+}
+
 // =====================================================================
-// LỚP ĐIỀU KHIỂN GIAO DIỆN MENU CHÍNH
+// LỚP ĐIỀU KHIỂN GIAO DIỆN MENU CHÍNH (ĐÃ SỬA LỖI ĐỊNH VỊ)
 // =====================================================================
 @interface HuyMenuController : UIViewController <UITextFieldDelegate>
 @property (nonatomic, strong) UIView *sidebar;
@@ -107,9 +132,8 @@ static UIWindowScene* getActiveWindowScene() {
     menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0]; // Cam neon
     espColor = [UIColor redColor];
     
-    // Khung chứa Menu
+    // Khởi tạo Khung chứa Menu (Toạ độ tâm sẽ được cập nhật chuẩn xác trong viewWillLayoutSubviews)
     menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 580, 320)];
-    menuContainer.center = self.view.center;
     menuContainer.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.96];
     menuContainer.layer.borderWidth = 1.5;
     menuContainer.layer.borderColor = menuAccentColor.CGColor;
@@ -121,7 +145,7 @@ static UIWindowScene* getActiveWindowScene() {
     [menuContainer addGestureRecognizer:panDrag];
     
     // -----------------------------------------------------------------
-    // GIAO DIỆN NHẬP KEY (AUTH PANEL)
+    // GIAO DIỆN NHẬP KEY BAN ĐẦU (AUTH PANEL)
     // -----------------------------------------------------------------
     authPanel = [[UIView alloc] initWithFrame:menuContainer.bounds];
     authPanel.backgroundColor = [UIColor clearColor];
@@ -183,7 +207,7 @@ static UIWindowScene* getActiveWindowScene() {
     [authPanel addSubview:closeAuthBtn];
     
     // -----------------------------------------------------------------
-    // PANEL MENU CHÍNH (MAIN PANEL)
+    // PANEL MENU CHÍNH (MAIN MOD SCREEN) - ẨN MẶC ĐỊNH CHỜ KEY
     // -----------------------------------------------------------------
     mainModPanel = [[UIView alloc] initWithFrame:menuContainer.bounds];
     mainModPanel.backgroundColor = [UIColor clearColor];
@@ -221,12 +245,19 @@ static UIWindowScene* getActiveWindowScene() {
     
     [self buildSidebarTabs];
     
-    // Khôi phục Key đã lưu
+    // Tự động khôi phục Key đã lưu
     NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"huy_saved_activation_key"];
     if (savedKey && savedKey.length > 0) {
         keyInputField.text = savedKey;
         [self verifyLicenseKeyOnFirebase];
     }
+}
+
+// 🌟 FIX LỖI HIỂN THỊ CHÍ MẠNG: ĐƯA TÂM CONTAINER VỀ ĐÚNG GIỮA VIEW KHI MÀN HÌNH ĐÃ LAYOUT XONG
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    CGRect bounds = self.view.bounds;
+    menuContainer.center = CGPointMake(bounds.size.width / 2, bounds.size.height / 2);
 }
 
 - (void)handleMenuDrag:(UIPanGestureRecognizer *)gesture {
@@ -248,6 +279,7 @@ static UIWindowScene* getActiveWindowScene() {
 
 + (void)openMenuWithAnimation {
     overlayMenuWindow.hidden = NO;
+    [overlayMenuWindow makeKeyAndVisible]; // Đảm bảo làm nổi bật cửa sổ
     menuContainer.transform = CGAffineTransformMakeScale(0.6, 0.6);
     menuContainer.alpha = 0.0;
     [UIView animateWithDuration:0.3 delay:0.0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseInOut animations:^{
@@ -319,7 +351,7 @@ static UIWindowScene* getActiveWindowScene() {
 }
 
 // =====================================================================
-// XÁC THỰC LICENSE KEY TRÊN DATABASE FIREBASE QUA REST API
+// KẾT NỐI VÀ XÁC THỰC LICENSE KEY TRÊN FIREBASE QUA REST API
 // =====================================================================
 - (void)verifyLicenseKeyOnFirebase {
     NSString *inputKey = [keyInputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -365,7 +397,7 @@ static UIWindowScene* getActiveWindowScene() {
                 return;
             }
             
-            // Xác thực thành công rực rỡ
+            // Kích hoạt thành công rực rỡ
             isKeyValidated = YES;
             currentActiveKey = inputKey;
             usernameInfo = username;
@@ -442,7 +474,7 @@ static UIWindowScene* getActiveWindowScene() {
 }
 
 // =====================================================================
-// VẼ NỘI DUNG CHI TIẾT TỪNG TAB TRÊN MENU CHÍNH
+// VẼ NỘI DUNG TẤT CẢ CÁC TAB
 // =====================================================================
 - (void)renderActiveTabScreen:(NSInteger)idx {
     for (UIView *sub in self.scrollView.subviews) {
@@ -452,7 +484,7 @@ static UIWindowScene* getActiveWindowScene() {
     CGFloat y = 10;
     
     if (idx == 0) {
-        // TAB 0: AIMBOT TỰ ĐỘNG KHÓA
+        // TAB 0: AIMBOT
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"MỤC TIÊU & AIMBOT" : @"AIMBOT LOCATIONS"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -474,7 +506,7 @@ static UIWindowScene* getActiveWindowScene() {
         posSeg.frame = CGRectMake(160, y, 230, 30);
         posSeg.selectedSegmentIndex = [aimTargetPosition isEqualToString:@"Đầu"] ? 0 : ([aimTargetPosition isEqualToString:@"Cổ"] ? 1 : ([aimTargetPosition isEqualToString:@"Ngực"] ? 2 : 3));
         
-        // Hỗ trợ chọn màu phân khúc phù hợp iOS 13+
+        // 🌟 ĐÃ FIX CHUẨN XÁC: ĐẢM BẢO DÙNG ĐÚNG ĐỊNH DANH HỆ THỐNG ĐỂ COMPILER KHÔNG BỊ CRASH
         if (@available(iOS 13.0, *)) {
             posSeg.selectedSegmentTintColor = menuAccentColor;
         }
@@ -526,7 +558,7 @@ static UIWindowScene* getActiveWindowScene() {
         y += 75;
         
     } else if (idx == 1) {
-        // TAB 1: ESP HIỂN THỊ
+        // TAB 1: ESP
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"XUYÊN TƯỜNG ĐỊNH VỊ (ESP)" : @"WALL ESP CONFIGURATION"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -545,7 +577,7 @@ static UIWindowScene* getActiveWindowScene() {
         [self.scrollView addSubview:espLin];
         y += 55;
         
-        UIView *espBox = [self buildSwitchRow:isVietnamese ? @"Vẽ Hộp 3D (Boxes)" : @"ESP Boxes" state:isEspBoxes action:^(BOOL isOn) {
+        UIView *espBox = [self buildSwitchRow:isVietnamese ? @"Vẽ Hộp 3D (Boxes)" : @"Draw Object Boxes" state:isEspBoxes action:^(BOOL isOn) {
             isEspBoxes = isOn;
         }];
         espBox.frame = CGRectMake(0, y, 410, 45);
@@ -585,7 +617,7 @@ static UIWindowScene* getActiveWindowScene() {
         y += 75;
         
     } else if (idx == 2) {
-        // TAB 2: CHỨC NĂNG (FEATURES)
+        // TAB 2: CHỨC NĂNG CHÍNH
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"TINH CHỈNH NHÂN VẬT & GAME" : @"CHARACTER & GAMEPLAY MOD"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -966,7 +998,7 @@ static UIWindowScene* getActiveWindowScene() {
 @end
 
 // =====================================================================
-// KHỞI CHẠY GIAO DIỆN & DÒ TÌM SCENE HOẠT ĐỘNG (SCENE-COMPATIBLE TRIGGER)
+// KHỞI CHẠY GIAO DIỆN & CỬ CHỈ GÕ 3 NGÓN TAY 2 LẦN LÊN WEBVIEW
 // =====================================================================
 @interface HuyMenuInitializer : NSObject
 + (void)tryInitializeUI;
@@ -978,10 +1010,9 @@ static UIWindowScene* getActiveWindowScene() {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIWindowScene *scene = nil;
         
-        // 🌟 BỘ QUÉT TÌM SCENE CHỦ ĐỘNG (CHỐNG LẠI SỰ CHẶN CỦA WEBVIEW)
         if (@available(iOS 13.0, *)) {
             scene = getActiveWindowScene();
-            // Nếu app web chưa kích hoạt xong Scene, tiếp tục thử lại sau mỗi 0.5s để bảo đảm hiện được nút
+            // Nếu App chưa vẽ xong Scene, đợi thêm 0.5s rồi khởi tạo lại để chống nuốt menu
             if (!scene) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     [HuyMenuInitializer tryInitializeUI];
@@ -990,7 +1021,7 @@ static UIWindowScene* getActiveWindowScene() {
             }
         }
         
-        // 1. TẠO CỬ SỔ NỔI ĐỘC LẬP CHỨA NÚT ĐẦU LÂU 💀 LÊN TRÊN WEBVIEW
+        // 1. TẠO CỬ SỔ NỔI ĐỘC LẬP CHỨA NÚT TRÒN 💀 ĐÈ LÊN WEBVIEW
         if (@available(iOS 13.0, *)) {
             floatingButtonWindow = [[UIWindow alloc] initWithWindowScene:scene];
         } else {
@@ -999,9 +1030,8 @@ static UIWindowScene* getActiveWindowScene() {
         
         floatingButtonWindow.frame = CGRectMake(20, 180, 56, 56);
         floatingButtonWindow.backgroundColor = [UIColor clearColor];
-        floatingButtonWindow.windowLevel = UIWindowLevelAlert + 1000; // Đặt cấp độ cao nhất để đè lên WKWebView
+        floatingButtonWindow.windowLevel = UIWindowLevelAlert + 1000; // Mức cao nhất chống nuốt
         
-        // Gán RootViewController trống để tránh bị iOS chặn hành vi chạm
         UIViewController *btnRootVC = [[UIViewController alloc] init];
         btnRootVC.view.backgroundColor = [UIColor clearColor];
         floatingButtonWindow.rootViewController = btnRootVC;
@@ -1014,13 +1044,11 @@ static UIWindowScene* getActiveWindowScene() {
         [floatingBtn setTitle:@"💀" forState:UIControlStateNormal];
         floatingBtn.titleLabel.font = [UIFont systemFontOfSize:26];
         
-        // Đổ bóng phát sáng Neon xanh lục
         floatingBtn.layer.shadowColor = [UIColor greenColor].CGColor;
         floatingBtn.layer.shadowOffset = CGSizeZero;
         floatingBtn.layer.shadowRadius = 8;
         floatingBtn.layer.shadowOpacity = 0.8;
         
-        // Thêm cử chỉ kéo thả nút nổi mượt mà
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleFloatingPan:)];
         [floatingBtn addGestureRecognizer:pan];
         
@@ -1028,7 +1056,7 @@ static UIWindowScene* getActiveWindowScene() {
         [btnRootVC.view addSubview:floatingBtn];
         [floatingButtonWindow setHidden:NO];
 
-        // 2. TẠO CỬ SỔ CHỨA TOÀN BỘ PANEL MENU CHÍNH
+        // 2. TẠO CỬ SỔ CHỨA PANEL MENU CHÍNH CHỜ TRẠNG THÁI KEY
         if (@available(iOS 13.0, *)) {
             overlayMenuWindow = [[UIWindow alloc] initWithWindowScene:scene];
         } else {
@@ -1042,13 +1070,13 @@ static UIWindowScene* getActiveWindowScene() {
         overlayMenuWindow.rootViewController = controller;
         overlayMenuWindow.hidden = YES;
         
-        // 3. THÊM CỬ CHỈ GÕ 2 NGÓN TAY 2 LẦN ĐỂ MỞ NHANH CHÓNG
+        // 3. THIẾT LẬP CỬ CHỈ GÕ THƯỜNG TRỰC: GÕ 3 NGÓN TAY 2 LẦN ĐỂ MỞ MENU CHỐNG CHẶN GESTURE
         UIWindow *activeWin = getActiveKeyWindow();
         if (activeWin) {
-            UITapGestureRecognizer *doubleFingerDoubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleHiddenDoubleFingerTap:)];
-            doubleFingerDoubleTap.numberOfTouchesRequired = 2; // Sử dụng 2 ngón để sếp dễ thao tác trên màn hình nhỏ
-            doubleFingerDoubleTap.numberOfTapsRequired = 2;    // Gõ 2 lần
-            [activeWin addGestureRecognizer:doubleFingerDoubleTap];
+            UITapGestureRecognizer *tripleFingerDoubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleHiddenTripleFingerTap:)];
+            tripleFingerDoubleTap.numberOfTouchesRequired = 3; // 3 ngón tay
+            tripleFingerDoubleTap.numberOfTapsRequired = 2;    // Gõ 2 lần
+            [activeWin addGestureRecognizer:tripleFingerDoubleTap];
         }
     });
 }
@@ -1076,7 +1104,7 @@ static UIWindowScene* getActiveWindowScene() {
     }
 }
 
-+ (void)handleHiddenDoubleFingerTap:(UITapGestureRecognizer *)gesture {
++ (void)handleHiddenTripleFingerTap:(UITapGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateEnded) {
         [self toggleHuyMenu];
     }
@@ -1088,11 +1116,9 @@ static UIWindowScene* getActiveWindowScene() {
 // KHỞI CHẠY TỨC THÌ KHÔNG PHỤ THUỘC VÀO TRỄ THỜI GIAN LOAD APP
 // =====================================================================
 __attribute__((constructor)) static void initialize() {
-    // Nếu cửa sổ của app đã được vẽ xong, chạy dựng giao diện dylib ngay!
     if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
         [HuyMenuInitializer tryInitializeUI];
     } else {
-        // Dự phòng: Nếu dylib được load sớm, đợi thông báo ứng dụng hoàn tất thiết lập
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
                                                           object:nil
                                                            queue:[NSOperationQueue mainQueue]
