@@ -101,13 +101,11 @@ static void resetAllFeatures() {
     self.view.backgroundColor = [UIColor clearColor];
     self.view.userInteractionEnabled = YES;
     
-    // Nền đen mờ
     UIView *dimView = [[UIView alloc] initWithFrame:self.view.bounds];
     dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
     dimView.userInteractionEnabled = YES;
     [self.view addSubview:dimView];
     
-    // MENU CONTAINER
     menuContainer = [[UIView alloc] initWithFrame:CGRectMake(25, 60, 350, 530)];
     menuContainer.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.95];
     menuContainer.layer.cornerRadius = 20;
@@ -122,31 +120,27 @@ static void resetAllFeatures() {
     logoView.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.05 alpha:1];
     [menuContainer addSubview:logoView];
     
-    // Dòng chữ ANONYMOUS
-    UILabel *logoLabel1 = [[UILabel alloc] initWithFrame:CGRectMake(0, 5, 350, 30)];
+    UILabel *logoLabel1 = [[UILabel alloc] initWithFrame:CGRectMake(0, 5, 350, 25)];
     logoLabel1.text = @"WE DO NOT FORGIVE.";
     logoLabel1.textColor = [UIColor colorWithRed:0.8 green:0.8 blue:0.8 alpha:1];
     logoLabel1.font = [UIFont boldSystemFontOfSize:14];
     logoLabel1.textAlignment = NSTextAlignmentCenter;
     [logoView addSubview:logoLabel1];
     
-    UILabel *logoLabel2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 25, 350, 30)];
+    UILabel *logoLabel2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 25, 350, 25)];
     logoLabel2.text = @"WE DO NOT FORGET.";
     logoLabel2.textColor = [UIColor colorWithRed:0.8 green:0.8 blue:0.8 alpha:1];
     logoLabel2.font = [UIFont boldSystemFontOfSize:14];
     logoLabel2.textAlignment = NSTextAlignmentCenter;
     [logoView addSubview:logoLabel2];
     
-    // ANONYMOUS chữ to
-    UILabel *logoLabel3 = [[UILabel alloc] initWithFrame:CGRectMake(0, 48, 350, 28)];
+    UILabel *logoLabel3 = [[UILabel alloc] initWithFrame:CGRectMake(0, 45, 350, 28)];
     logoLabel3.text = @"A N O N Y M O U S";
     logoLabel3.textColor = [UIColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:1];
     logoLabel3.font = [UIFont boldSystemFontOfSize:20];
     logoLabel3.textAlignment = NSTextAlignmentCenter;
-    logoLabel3.letterSpacing = 5;
     [logoView addSubview:logoLabel3];
     
-    // WE ARE LEGION
     UILabel *logoLabel4 = [[UILabel alloc] initWithFrame:CGRectMake(0, 68, 350, 12)];
     logoLabel4.text = @"WE ARE LEGION.";
     logoLabel4.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:1];
@@ -154,7 +148,6 @@ static void resetAllFeatures() {
     logoLabel4.textAlignment = NSTextAlignmentCenter;
     [logoView addSubview:logoLabel4];
     
-    // Nút X
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(310, 5, 30, 30);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
@@ -176,7 +169,6 @@ static void resetAllFeatures() {
         [menuContainer addSubview:tabBtn];
     }
     
-    // ====== CONTENT ======
     UIView *contentArea = [[UIView alloc] initWithFrame:CGRectMake(10, 125, 330, 350)];
     contentArea.tag = 999;
     contentArea.backgroundColor = [UIColor clearColor];
@@ -185,15 +177,12 @@ static void resetAllFeatures() {
     
     [self loadTab:currentTab];
     
-    // ====== FOOTER ======
     UILabel *footer = [[UILabel alloc] initWithFrame:CGRectMake(0, 480, 350, 20)];
     footer.text = @"🔥 Granny Mod v2.0 | Anonymous";
     footer.textColor = [UIColor colorWithWhite:0.3 alpha:1];
     footer.font = [UIFont systemFontOfSize:10];
     footer.textAlignment = NSTextAlignmentCenter;
     [menuContainer addSubview:footer];
-    
-    NSLog(@"✅ Menu loaded!");
 }
 
 - (void)tabPressed:(UIButton *)sender {
@@ -477,7 +466,6 @@ static void resetAllFeatures() {
 void showMenu() {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (isMenuVisible) {
-            // Nếu đang hiện thì ẩn đi
             if (menuWindow) {
                 menuWindow.hidden = YES;
                 isMenuVisible = NO;
@@ -494,7 +482,6 @@ void showMenu() {
         }
         menuWindow.hidden = NO;
         isMenuVisible = YES;
-        NSLog(@"📱 Menu opened!");
     });
 }
 
@@ -524,8 +511,6 @@ static void setupGestures() {
         tap.numberOfTapsRequired = 2;
         tap.cancelsTouchesInView = NO;
         [win addGestureRecognizer:tap];
-        
-        NSLog(@"👆 Gesture ready: 3 fingers, 2 taps");
     });
 }
 
@@ -555,7 +540,6 @@ static void new_Awake(id self, SEL cmd) {
 
 // ====== CONSTRUCTOR ======
 __attribute__((constructor)) static void init() {
-    NSLog(@"🔥 Granny Mod initializing...");
     loadSettings();
     resetAllFeatures();
     
