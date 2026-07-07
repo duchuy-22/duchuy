@@ -26,7 +26,7 @@ static float aimFOV = 150.0f;
 static UIWindow *menuWindow = nil;
 static UIView *menuContainer = nil;
 static int currentTab = 0;
-static UIViewController *menuVC = nil;
+static BOOL isMenuVisible = NO;
 
 // ====== LƯU CẤU HÌNH ======
 static void saveSettings() {
@@ -103,54 +103,81 @@ static void resetAllFeatures() {
     
     // Nền đen mờ
     UIView *dimView = [[UIView alloc] initWithFrame:self.view.bounds];
-    dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+    dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
     dimView.userInteractionEnabled = YES;
     [self.view addSubview:dimView];
     
-    // Tạo menu ở giữa màn hình
-    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(30, 80, 340, 500)];
-    menuContainer.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.95];
-    menuContainer.layer.cornerRadius = 16;
+    // MENU CONTAINER
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(25, 60, 350, 530)];
+    menuContainer.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.95];
+    menuContainer.layer.cornerRadius = 20;
     menuContainer.layer.borderWidth = 2;
-    menuContainer.layer.borderColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8].CGColor;
+    menuContainer.layer.borderColor = [UIColor colorWithRed:1.0 green:0.0 blue:0.0 alpha:0.7].CGColor;
     menuContainer.clipsToBounds = YES;
     menuContainer.userInteractionEnabled = YES;
     [self.view addSubview:menuContainer];
     
-    // HEADER
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 340, 50)];
-    header.backgroundColor = [UIColor colorWithRed:0.15 green:0.05 blue:0.05 alpha:1];
-    [menuContainer addSubview:header];
+    // ====== LOGO ANONYMOUS ======
+    UIView *logoView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 350, 80)];
+    logoView.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.05 alpha:1];
+    [menuContainer addSubview:logoView];
     
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(15, 10, 200, 30)];
-    title.text = @"🔥 GRANNY MOD";
-    title.textColor = [UIColor colorWithRed:1.0 green:0.3 blue:0.3 alpha:1];
-    title.font = [UIFont boldSystemFontOfSize:18];
-    [header addSubview:title];
+    // Dòng chữ ANONYMOUS
+    UILabel *logoLabel1 = [[UILabel alloc] initWithFrame:CGRectMake(0, 5, 350, 30)];
+    logoLabel1.text = @"WE DO NOT FORGIVE.";
+    logoLabel1.textColor = [UIColor colorWithRed:0.8 green:0.8 blue:0.8 alpha:1];
+    logoLabel1.font = [UIFont boldSystemFontOfSize:14];
+    logoLabel1.textAlignment = NSTextAlignmentCenter;
+    [logoView addSubview:logoLabel1];
     
+    UILabel *logoLabel2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 25, 350, 30)];
+    logoLabel2.text = @"WE DO NOT FORGET.";
+    logoLabel2.textColor = [UIColor colorWithRed:0.8 green:0.8 blue:0.8 alpha:1];
+    logoLabel2.font = [UIFont boldSystemFontOfSize:14];
+    logoLabel2.textAlignment = NSTextAlignmentCenter;
+    [logoView addSubview:logoLabel2];
+    
+    // ANONYMOUS chữ to
+    UILabel *logoLabel3 = [[UILabel alloc] initWithFrame:CGRectMake(0, 48, 350, 28)];
+    logoLabel3.text = @"A N O N Y M O U S";
+    logoLabel3.textColor = [UIColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:1];
+    logoLabel3.font = [UIFont boldSystemFontOfSize:20];
+    logoLabel3.textAlignment = NSTextAlignmentCenter;
+    logoLabel3.letterSpacing = 5;
+    [logoView addSubview:logoLabel3];
+    
+    // WE ARE LEGION
+    UILabel *logoLabel4 = [[UILabel alloc] initWithFrame:CGRectMake(0, 68, 350, 12)];
+    logoLabel4.text = @"WE ARE LEGION.";
+    logoLabel4.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:1];
+    logoLabel4.font = [UIFont systemFontOfSize:10];
+    logoLabel4.textAlignment = NSTextAlignmentCenter;
+    [logoView addSubview:logoLabel4];
+    
+    // Nút X
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(295, 10, 35, 30);
+    closeBtn.frame = CGRectMake(310, 5, 30, 30);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
-    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
+    [closeBtn setTitleColor:[UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:1] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:20];
     [closeBtn addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
-    [header addSubview:closeBtn];
+    [logoView addSubview:closeBtn];
     
-    // TAB BAR
+    // ====== TAB BAR ======
     NSArray *tabNames = @[@"Aimbot", @"ESP", @"Chức năng", @"Tài khoản"];
     for (int i = 0; i < 4; i++) {
         UIButton *tabBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        tabBtn.frame = CGRectMake(10 + i * 80, 55, 75, 35);
+        tabBtn.frame = CGRectMake(10 + i * 82, 85, 78, 35);
         [tabBtn setTitle:tabNames[i] forState:UIControlStateNormal];
         [tabBtn setTitleColor:(i == currentTab) ? [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:1] : [UIColor grayColor] forState:UIControlStateNormal];
-        tabBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+        tabBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
         tabBtn.tag = 200 + i;
         [tabBtn addTarget:self action:@selector(tabPressed:) forControlEvents:UIControlEventTouchUpInside];
         [menuContainer addSubview:tabBtn];
     }
     
-    // CONTENT
-    UIView *contentArea = [[UIView alloc] initWithFrame:CGRectMake(10, 95, 320, 350)];
+    // ====== CONTENT ======
+    UIView *contentArea = [[UIView alloc] initWithFrame:CGRectMake(10, 125, 330, 350)];
     contentArea.tag = 999;
     contentArea.backgroundColor = [UIColor clearColor];
     contentArea.userInteractionEnabled = YES;
@@ -158,7 +185,15 @@ static void resetAllFeatures() {
     
     [self loadTab:currentTab];
     
-    NSLog(@"✅ Menu loaded successfully!");
+    // ====== FOOTER ======
+    UILabel *footer = [[UILabel alloc] initWithFrame:CGRectMake(0, 480, 350, 20)];
+    footer.text = @"🔥 Granny Mod v2.0 | Anonymous";
+    footer.textColor = [UIColor colorWithWhite:0.3 alpha:1];
+    footer.font = [UIFont systemFontOfSize:10];
+    footer.textAlignment = NSTextAlignmentCenter;
+    [menuContainer addSubview:footer];
+    
+    NSLog(@"✅ Menu loaded!");
 }
 
 - (void)tabPressed:(UIButton *)sender {
@@ -193,11 +228,11 @@ static void resetAllFeatures() {
 // ====== TAB AIMBOT ======
 - (void)drawAimbotTab:(UIView *)content {
     int y = 5;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isAimbotActive tag:100 label:@"🔫 Aimbot"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isAimbotActive tag:100 label:@"🔫 Aimbot"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:aimAuto tag:101 label:@"🎯 Tự động ngắm"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:aimAuto tag:101 label:@"🎯 Tự động ngắm"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:aimWall tag:102 label:@"🧱 Xuyên tường"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:aimWall tag:102 label:@"🧱 Xuyên tường"];
     y += 40;
     
     [self addLabel:content text:@"🎯 Vị trí:" frame:CGRectMake(10, y, 100, 30)];
@@ -224,13 +259,13 @@ static void resetAllFeatures() {
 // ====== TAB ESP ======
 - (void)drawESPTab:(UIView *)content {
     int y = 5;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isEspActive tag:200 label:@"👁️ ESP"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isEspActive tag:200 label:@"👁️ ESP"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:espBox tag:201 label:@"📦 Box"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:espBox tag:201 label:@"📦 Box"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:espLine tag:202 label:@"📏 Line"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:espLine tag:202 label:@"📏 Line"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:espSkeleton tag:203 label:@"🦴 Skeleton"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:espSkeleton tag:203 label:@"🦴 Skeleton"];
     y += 40;
     
     UIButton *colorBtn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -264,17 +299,17 @@ static void resetAllFeatures() {
 // ====== TAB CHỨC NĂNG ======
 - (void)drawChucNangTab:(UIView *)content {
     int y = 5;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isGodMode tag:300 label:@"🛡️ Bất tử"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isGodMode tag:300 label:@"🛡️ Bất tử"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isHighSpeed tag:301 label:@"⚡ Speed"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isHighSpeed tag:301 label:@"⚡ Speed"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isNoRecoil tag:302 label:@"🔫 Không giật"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isNoRecoil tag:302 label:@"🔫 Không giật"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isFastReload tag:303 label:@"🔄 Nạp đạn nhanh"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isFastReload tag:303 label:@"🔄 Nạp đạn nhanh"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isTeleport tag:304 label:@"📦 Teleport"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isTeleport tag:304 label:@"📦 Teleport"];
     y += 40;
-    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isKillAll tag:305 label:@"💀 Kill bà ngoại"];
+    [self addSwitch:content frame:CGRectMake(260, y, 51, 31) value:isKillAll tag:305 label:@"💀 Kill bà ngoại"];
 }
 
 // ====== TAB TÀI KHOẢN ======
@@ -300,7 +335,7 @@ static void resetAllFeatures() {
     [content addSubview:confirmBtn];
     y += 50;
     
-    [self addLabel:content text:@"👤 User: HuyMod" frame:CGRectMake(10, y, 200, 30) color:[UIColor colorWithRed:0.5 green:1.0 blue:0.5 alpha:1]];
+    [self addLabel:content text:@"👤 User: Anonymous" frame:CGRectMake(10, y, 200, 30) color:[UIColor colorWithRed:0.5 green:1.0 blue:0.5 alpha:1]];
     y += 35;
     [self addLabel:content text:@"⏳ Hết hạn: 2026-12-31" frame:CGRectMake(10, y, 250, 30) color:[UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1]];
     y += 40;
@@ -308,17 +343,17 @@ static void resetAllFeatures() {
     y += 50;
     
     UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    saveBtn.frame = CGRectMake(30, y, 250, 45);
+    saveBtn.frame = CGRectMake(30, y, 260, 40);
     [saveBtn setTitle:@"💾 LƯU SETTING" forState:UIControlStateNormal];
     [saveBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     saveBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.5 blue:0.2 alpha:0.9];
     saveBtn.layer.cornerRadius = 8;
     [saveBtn addTarget:self action:@selector(savePressed) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:saveBtn];
-    y += 55;
+    y += 50;
     
     UIButton *resetBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    resetBtn.frame = CGRectMake(30, y, 250, 45);
+    resetBtn.frame = CGRectMake(30, y, 260, 40);
     [resetBtn setTitle:@"🔴 TẮT TẤT CẢ" forState:UIControlStateNormal];
     [resetBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     resetBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
@@ -425,6 +460,7 @@ static void resetAllFeatures() {
 
 - (void)hideMenu {
     menuWindow.hidden = YES;
+    isMenuVisible = NO;
 }
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
@@ -440,15 +476,24 @@ static void resetAllFeatures() {
 // ====== HÀM MỞ MENU ======
 void showMenu() {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (isMenuVisible) {
+            // Nếu đang hiện thì ẩn đi
+            if (menuWindow) {
+                menuWindow.hidden = YES;
+                isMenuVisible = NO;
+            }
+            return;
+        }
+        
         if (!menuWindow) {
             menuWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
             menuWindow.windowLevel = UIWindowLevelAlert + 1;
             menuWindow.backgroundColor = [UIColor clearColor];
             menuWindow.userInteractionEnabled = YES;
-            menuWindow.hidden = NO;
             menuWindow.rootViewController = [[GrannyModMenuVC alloc] init];
         }
         menuWindow.hidden = NO;
+        isMenuVisible = YES;
         NSLog(@"📱 Menu opened!");
     });
 }
@@ -461,12 +506,10 @@ static void setupGestures() {
             win = [[[UIApplication sharedApplication] windows] firstObject];
         }
         if (!win) {
-            // Tạo cửa sổ mới nếu không có
             win = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
             win.hidden = NO;
         }
         
-        // Xóa gesture cũ
         for (UIGestureRecognizer *gr in win.gestureRecognizers) {
             if ([gr isKindOfClass:[UITapGestureRecognizer class]]) {
                 UITapGestureRecognizer *tap = (UITapGestureRecognizer *)gr;
@@ -476,7 +519,6 @@ static void setupGestures() {
             }
         }
         
-        // Tạo gesture mới
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(showMenu)];
         tap.numberOfTouchesRequired = 3;
         tap.numberOfTapsRequired = 2;
@@ -487,7 +529,7 @@ static void setupGestures() {
     });
 }
 
-// ====== HOOK BẰNG METHOD SWIZZLING ======
+// ====== HOOK ======
 static void (*orig_applicationDidFinishLaunching)(id self, SEL cmd, UIApplication *app);
 static void new_applicationDidFinishLaunching(id self, SEL cmd, UIApplication *app) {
     if (orig_applicationDidFinishLaunching) {
@@ -495,12 +537,9 @@ static void new_applicationDidFinishLaunching(id self, SEL cmd, UIApplication *a
     }
     loadSettings();
     resetAllFeatures();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         setupGestures();
-        // Mở menu test sau 3 giây
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            showMenu();
-        });
+        showMenu();
     });
 }
 
@@ -520,7 +559,6 @@ __attribute__((constructor)) static void init() {
     loadSettings();
     resetAllFeatures();
     
-    // Hook UnityAppController
     Class unityClass = NSClassFromString(@"UnityAppController");
     if (unityClass) {
         Method origMethod = class_getInstanceMethod(unityClass, @selector(applicationDidFinishLaunching:));
@@ -530,7 +568,6 @@ __attribute__((constructor)) static void init() {
         }
     }
     
-    // Hook GameManager
     Class gameClass = NSClassFromString(@"GameManager");
     if (gameClass) {
         Method origMethod = class_getInstanceMethod(gameClass, @selector(Awake));
@@ -540,9 +577,8 @@ __attribute__((constructor)) static void init() {
         }
     }
     
-    // Tự động mở menu sau 3 giây để test
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         setupGestures();
-        showMenu(); // TỰ ĐỘNG MỞ MENU SAU 3 GIÂY
+        showMenu();
     });
 }
