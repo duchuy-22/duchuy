@@ -11,26 +11,21 @@ static BOOL isNoRecoil = NO;
 static BOOL isFastReload = NO;
 static BOOL isTeleport = NO;
 static BOOL isKillAll = NO;
-static BOOL isVietnamese = YES;
 
-// ESP Settings
 static BOOL espBox = YES;
 static BOOL espLine = YES;
 static BOOL espSkeleton = NO;
 static float espDistance = 100.0f;
 static UIColor *espColor = nil;
 
-// Aimbot Settings
-static int aimTarget = 0; // 0:Đầu, 1:Ngực, 2:Cổ, 3:Bụng
+static int aimTarget = 0;
 static BOOL aimAuto = NO;
 static BOOL aimWall = NO;
 static float aimFOV = 150.0f;
 
-// UI
 static UIWindow *menuWindow = nil;
 static UIView *menuContainer = nil;
-static int currentTab = 0; // 0:Aimbot, 1:ESP, 2:ChucNang, 3:TaiKhoan
-static NSMutableArray *allSwitches = nil;
+static int currentTab = 0;
 
 // ====== LƯU CẤU HÌNH ======
 static void saveSettings() {
@@ -94,38 +89,6 @@ static void resetAllFeatures() {
     saveSettings();
 }
 
-// ====== HÀM TẠO LABEL ======
-static UILabel* createLabel(NSString *text, CGRect frame, UIColor *color, UIFont *font) {
-    UILabel *label = [[UILabel alloc] initWithFrame:frame];
-    label.text = text;
-    label.textColor = color ? color : [UIColor whiteColor];
-    label.font = font ? font : [UIFont systemFontOfSize:14];
-    return label;
-}
-
-// ====== HÀM TẠO SWITCH ======
-static UISwitch* createSwitch(CGRect frame, BOOL value, int tag, id target, SEL action) {
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:frame];
-    sw.on = value;
-    sw.tag = tag;
-    sw.onTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
-    [sw addTarget:target action:action forControlEvents:UIControlEventValueChanged];
-    return sw;
-}
-
-// ====== HÀM TẠO NÚT ======
-static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, id target, SEL action) {
-    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-    btn.frame = frame;
-    [btn setTitle:title forState:UIControlStateNormal];
-    [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    btn.backgroundColor = bgColor;
-    btn.layer.cornerRadius = 8;
-    btn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-    [btn addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
-    return btn;
-}
-
 // ====== VIEW CONTROLLER ======
 @interface GrannyModMenuVC : UIViewController
 @end
@@ -136,13 +99,11 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
-    // Nền mờ
     UIView *dimView = [[UIView alloc] initWithFrame:self.view.bounds];
     dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
     dimView.userInteractionEnabled = YES;
     [self.view addSubview:dimView];
     
-    // MENU CONTAINER
     menuContainer = [[UIView alloc] initWithFrame:CGRectMake(30, 60, 340, 520)];
     menuContainer.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.95];
     menuContainer.layer.cornerRadius = 16;
@@ -151,7 +112,7 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     menuContainer.clipsToBounds = YES;
     [self.view addSubview:menuContainer];
     
-    // ====== HEADER ======
+    // HEADER
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 340, 50)];
     header.backgroundColor = [UIColor colorWithRed:0.12 green:0.04 blue:0.04 alpha:1];
     [menuContainer addSubview:header];
@@ -162,7 +123,6 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     title.font = [UIFont boldSystemFontOfSize:18];
     [header addSubview:title];
     
-    // Nút X
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(295, 10, 35, 30);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
@@ -171,7 +131,7 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [closeBtn addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
     [header addSubview:closeBtn];
     
-    // ====== TAB BAR ======
+    // TAB BAR
     NSArray *tabNames = @[@"Aimbot", @"ESP", @"Chức năng", @"Tài khoản"];
     for (int i = 0; i < 4; i++) {
         UIButton *tabBtn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -184,13 +144,12 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
         [menuContainer addSubview:tabBtn];
     }
     
-    // ====== CONTENT AREA ======
+    // CONTENT
     UIView *contentArea = [[UIView alloc] initWithFrame:CGRectMake(10, 95, 320, 370)];
     contentArea.tag = 999;
     contentArea.backgroundColor = [UIColor clearColor];
     [menuContainer addSubview:contentArea];
     
-    // Load tab hiện tại
     [self loadTab:currentTab];
 }
 
@@ -198,14 +157,12 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     int index = (int)(sender.tag - 200);
     currentTab = index;
     
-    // Cập nhật màu tab
     for (int i = 0; i < 4; i++) {
         UIButton *btn = (UIButton *)[menuContainer viewWithTag:200 + i];
         if (btn) {
             [btn setTitleColor:(i == index) ? [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:1] : [UIColor grayColor] forState:UIControlStateNormal];
         }
     }
-    
     [self loadTab:index];
 }
 
@@ -213,7 +170,6 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     UIView *content = [menuContainer viewWithTag:999];
     if (!content) return;
     
-    // Xóa content cũ
     for (UIView *v in content.subviews) {
         [v removeFromSuperview];
     }
@@ -226,30 +182,17 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     }
 }
 
-// ====== TAB 0: AIMBOT ======
+// ====== TAB AIMBOT ======
 - (void)drawAimbotTab:(UIView *)content {
     int y = 5;
-    
-    // Aimbot toggle
-    UISwitch *sw1 = createSwitch(CGRectMake(250, y, 51, 31), isAimbotActive, 100, self, @selector(switchChanged:));
-    [content addSubview:sw1];
-    [content addSubview:createLabel:@"🔫 Aimbot" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isAimbotActive tag:100 label:@"🔫 Aimbot"];
+    y += 40;
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:aimAuto tag:101 label:@"🎯 Tự động ngắm"];
+    y += 40;
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:aimWall tag:102 label:@"🧱 Xuyên tường"];
     y += 40;
     
-    // Auto aim
-    UISwitch *sw2 = createSwitch(CGRectMake(250, y, 51, 31), aimAuto, 101, self, @selector(switchChanged:));
-    [content addSubview:sw2];
-    [content addSubview:createLabel:@"🎯 Tự động ngắm" CGRectMake(10, y, 150, 30) nil nil];
-    y += 40;
-    
-    // Wall hack
-    UISwitch *sw3 = createSwitch(CGRectMake(250, y, 51, 31), aimWall, 102, self, @selector(switchChanged:));
-    [content addSubview:sw3];
-    [content addSubview:createLabel:@"🧱 Xuyên tường" CGRectMake(10, y, 150, 30) nil nil];
-    y += 40;
-    
-    // Vị trí ngắm
-    [content addSubview:createLabel:@"🎯 Vị trí:" CGRectMake(10, y, 100, 30) nil nil];
+    [self addLabel:content text:@"🎯 Vị trí:" frame:CGRectMake(10, y, 100, 30)];
     UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[@"Đầu", @"Ngực", @"Cổ", @"Bụng"]];
     seg.frame = CGRectMake(100, y, 200, 30);
     seg.selectedSegmentIndex = aimTarget;
@@ -260,8 +203,7 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [content addSubview:seg];
     y += 45;
     
-    // FOV
-    [content addSubview:createLabel:[NSString stringWithFormat:@"📏 FOV: %.0f", aimFOV] CGRectMake(10, y, 120, 30) nil nil];
+    [self addLabel:content text:[NSString stringWithFormat:@"📏 FOV: %.0f", aimFOV] frame:CGRectMake(10, y, 120, 30)];
     UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(130, y, 170, 30)];
     slider.minimumValue = 30;
     slider.maximumValue = 300;
@@ -271,39 +213,27 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [content addSubview:slider];
 }
 
-// ====== TAB 1: ESP ======
+// ====== TAB ESP ======
 - (void)drawESPTab:(UIView *)content {
     int y = 5;
-    
-    // ESP toggle
-    UISwitch *sw1 = createSwitch(CGRectMake(250, y, 51, 31), isEspActive, 200, self, @selector(switchChanged:));
-    [content addSubview:sw1];
-    [content addSubview:createLabel:@"👁️ ESP" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isEspActive tag:200 label:@"👁️ ESP"];
+    y += 40;
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:espBox tag:201 label:@"📦 Box"];
+    y += 40;
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:espLine tag:202 label:@"📏 Line"];
+    y += 40;
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:espSkeleton tag:203 label:@"🦴 Skeleton"];
     y += 40;
     
-    // Box
-    UISwitch *sw2 = createSwitch(CGRectMake(250, y, 51, 31), espBox, 201, self, @selector(switchChanged:));
-    [content addSubview:sw2];
-    [content addSubview:createLabel:@"📦 Box" CGRectMake(10, y, 150, 30) nil nil];
-    y += 40;
-    
-    // Line
-    UISwitch *sw3 = createSwitch(CGRectMake(250, y, 51, 31), espLine, 202, self, @selector(switchChanged:));
-    [content addSubview:sw3];
-    [content addSubview:createLabel:@"📏 Line" CGRectMake(10, y, 150, 30) nil nil];
-    y += 40;
-    
-    // Skeleton
-    UISwitch *sw4 = createSwitch(CGRectMake(250, y, 51, 31), espSkeleton, 203, self, @selector(switchChanged:));
-    [content addSubview:sw4];
-    [content addSubview:createLabel:@"🦴 Skeleton" CGRectMake(10, y, 150, 30) nil nil];
-    y += 40;
-    
-    // Màu ESP
-    UIButton *colorBtn = createButton(@"🎨 Màu ESP", CGRectMake(10, y, 150, 35), [UIColor colorWithWhite:0.2 alpha:1], self, @selector(chooseColor));
+    UIButton *colorBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    colorBtn.frame = CGRectMake(10, y, 150, 35);
+    [colorBtn setTitle:@"🎨 Màu ESP" forState:UIControlStateNormal];
+    [colorBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    colorBtn.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
+    colorBtn.layer.cornerRadius = 8;
+    [colorBtn addTarget:self action:@selector(chooseColor) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:colorBtn];
     
-    // Hiển thị màu hiện tại
     UIView *colorView = [[UIView alloc] initWithFrame:CGRectMake(170, y, 30, 30)];
     colorView.backgroundColor = espColor ? espColor : [UIColor redColor];
     colorView.layer.cornerRadius = 15;
@@ -313,8 +243,7 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [content addSubview:colorView];
     y += 50;
     
-    // Khoảng cách
-    [content addSubview:createLabel:[NSString stringWithFormat:@"📡 Khoảng cách: %.0fm", espDistance] CGRectMake(10, y, 150, 30) nil nil];
+    [self addLabel:content text:[NSString stringWithFormat:@"📡 Khoảng cách: %.0fm", espDistance] frame:CGRectMake(10, y, 150, 30)];
     UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(160, y, 140, 30)];
     slider.minimumValue = 10;
     slider.maximumValue = 200;
@@ -324,52 +253,27 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [content addSubview:slider];
 }
 
-// ====== TAB 2: CHỨC NĂNG ======
+// ====== TAB CHỨC NĂNG ======
 - (void)drawChucNangTab:(UIView *)content {
     int y = 5;
-    
-    // God Mode
-    UISwitch *sw1 = createSwitch(CGRectMake(250, y, 51, 31), isGodMode, 300, self, @selector(switchChanged:));
-    [content addSubview:sw1];
-    [content addSubview:createLabel:@"🛡️ Bất tử" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isGodMode tag:300 label:@"🛡️ Bất tử"];
     y += 40;
-    
-    // Speed
-    UISwitch *sw2 = createSwitch(CGRectMake(250, y, 51, 31), isHighSpeed, 301, self, @selector(switchChanged:));
-    [content addSubview:sw2];
-    [content addSubview:createLabel:@"⚡ Speed" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isHighSpeed tag:301 label:@"⚡ Speed"];
     y += 40;
-    
-    // No Recoil
-    UISwitch *sw3 = createSwitch(CGRectMake(250, y, 51, 31), isNoRecoil, 302, self, @selector(switchChanged:));
-    [content addSubview:sw3];
-    [content addSubview:createLabel:@"🔫 Không giật" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isNoRecoil tag:302 label:@"🔫 Không giật"];
     y += 40;
-    
-    // Fast Reload
-    UISwitch *sw4 = createSwitch(CGRectMake(250, y, 51, 31), isFastReload, 303, self, @selector(switchChanged:));
-    [content addSubview:sw4];
-    [content addSubview:createLabel:@"🔄 Nạp đạn nhanh" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isFastReload tag:303 label:@"🔄 Nạp đạn nhanh"];
     y += 40;
-    
-    // Teleport
-    UISwitch *sw5 = createSwitch(CGRectMake(250, y, 51, 31), isTeleport, 304, self, @selector(switchChanged:));
-    [content addSubview:sw5];
-    [content addSubview:createLabel:@"📦 Teleport vật phẩm" CGRectMake(10, y, 170, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isTeleport tag:304 label:@"📦 Teleport"];
     y += 40;
-    
-    // Kill All
-    UISwitch *sw6 = createSwitch(CGRectMake(250, y, 51, 31), isKillAll, 305, self, @selector(switchChanged:));
-    [content addSubview:sw6];
-    [content addSubview:createLabel:@"💀 Kill bà ngoại" CGRectMake(10, y, 150, 30) nil nil];
+    [self addSwitch:content frame:CGRectMake(250, y, 51, 31) value:isKillAll tag:305 label:@"💀 Kill bà ngoại"];
 }
 
-// ====== TAB 3: TÀI KHOẢN ======
+// ====== TAB TÀI KHOẢN ======
 - (void)drawTaiKhoanTab:(UIView *)content {
     int y = 10;
     
-    // Key
-    [content addSubview:createLabel:@"🔑 KEY:" CGRectMake(10, y, 60, 30) nil nil];
+    [self addLabel:content text:@"🔑 KEY:" frame:CGRectMake(10, y, 60, 30)];
     UITextField *keyField = [[UITextField alloc] initWithFrame:CGRectMake(80, y, 160, 35)];
     keyField.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
     keyField.textColor = [UIColor whiteColor];
@@ -379,31 +283,70 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     keyField.layer.borderColor = [UIColor grayColor].CGColor;
     [content addSubview:keyField];
     
-    UIButton *confirmBtn = createButton(@"✅", CGRectMake(250, y, 50, 35), [UIColor colorWithRed:0.2 green:0.7 blue:0.2 alpha:0.8], self, @selector(confirmKey));
+    UIButton *confirmBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    confirmBtn.frame = CGRectMake(250, y, 50, 35);
+    [confirmBtn setTitle:@"✅" forState:UIControlStateNormal];
+    confirmBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.7 blue:0.2 alpha:0.8];
+    confirmBtn.layer.cornerRadius = 8;
+    [confirmBtn addTarget:self action:@selector(confirmKey) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:confirmBtn];
     y += 50;
     
-    // Thông tin user
-    [content addSubview:createLabel:@"👤 User: HuyMod" CGRectMake(10, y, 200, 30) [UIColor colorWithRed:0.5 green:1.0 blue:0.5 alpha:1] nil];
+    [self addLabel:content text:@"👤 User: HuyMod" frame:CGRectMake(10, y, 200, 30) color:[UIColor colorWithRed:0.5 green:1.0 blue:0.5 alpha:1]];
     y += 35;
-    
-    [content addSubview:createLabel:@"⏳ Hết hạn: 2026-12-31" CGRectMake(10, y, 250, 30) [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1] nil];
+    [self addLabel:content text:@"⏳ Hết hạn: 2026-12-31" frame:CGRectMake(10, y, 250, 30) color:[UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1]];
     y += 40;
-    
-    [content addSubview:createLabel:@"✅ Đã kích hoạt!" CGRectMake(10, y, 200, 30) [UIColor greenColor] [UIFont boldSystemFontOfSize:16]];
+    [self addLabel:content text:@"✅ Đã kích hoạt!" frame:CGRectMake(10, y, 200, 30) color:[UIColor greenColor] font:[UIFont boldSystemFontOfSize:16]];
     y += 50;
     
-    // Nút Lưu Setting
-    UIButton *saveBtn = createButton(@"💾 LƯU SETTING", CGRectMake(30, y, 250, 45), [UIColor colorWithRed:0.2 green:0.5 blue:0.2 alpha:0.9], self, @selector(savePressed));
+    UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    saveBtn.frame = CGRectMake(30, y, 250, 45);
+    [saveBtn setTitle:@"💾 LƯU SETTING" forState:UIControlStateNormal];
+    [saveBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    saveBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.5 blue:0.2 alpha:0.9];
+    saveBtn.layer.cornerRadius = 8;
+    [saveBtn addTarget:self action:@selector(savePressed) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:saveBtn];
     y += 55;
     
-    // Nút Reset
-    UIButton *resetBtn = createButton(@"🔴 TẮT TẤT CẢ", CGRectMake(30, y, 250, 45), [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9], self, @selector(resetPressed));
+    UIButton *resetBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    resetBtn.frame = CGRectMake(30, y, 250, 45);
+    [resetBtn setTitle:@"🔴 TẮT TẤT CẢ" forState:UIControlStateNormal];
+    [resetBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    resetBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
+    resetBtn.layer.cornerRadius = 8;
+    [resetBtn addTarget:self action:@selector(resetPressed) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:resetBtn];
 }
 
-// ====== SWITCH HANDLER ======
+// ====== UI HELPER ======
+- (void)addSwitch:(UIView *)content frame:(CGRect)frame value:(BOOL)value tag:(int)tag label:(NSString *)label {
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:frame];
+    sw.on = value;
+    sw.tag = tag;
+    sw.onTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
+    [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+    [content addSubview:sw];
+    [self addLabel:content text:label frame:CGRectMake(10, frame.origin.y, 200, 30)];
+}
+
+- (void)addLabel:(UIView *)content text:(NSString *)text frame:(CGRect)frame {
+    [self addLabel:content text:text frame:frame color:[UIColor whiteColor] font:[UIFont systemFontOfSize:14]];
+}
+
+- (void)addLabel:(UIView *)content text:(NSString *)text frame:(CGRect)frame color:(UIColor *)color {
+    [self addLabel:content text:text frame:frame color:color font:[UIFont systemFontOfSize:14]];
+}
+
+- (void)addLabel:(UIView *)content text:(NSString *)text frame:(CGRect)frame color:(UIColor *)color font:(UIFont *)font {
+    UILabel *label = [[UILabel alloc] initWithFrame:frame];
+    label.text = text;
+    label.textColor = color ? color : [UIColor whiteColor];
+    label.font = font ? font : [UIFont systemFontOfSize:14];
+    [content addSubview:label];
+}
+
+// ====== HANDLERS ======
 - (void)switchChanged:(UISwitch *)sender {
     switch (sender.tag) {
         case 100: isAimbotActive = sender.on; break;
@@ -420,7 +363,6 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
         case 304: isTeleport = sender.on; break;
         case 305: isKillAll = sender.on; break;
     }
-    NSLog(@"🔄 Switch %d changed", sender.tag);
 }
 
 - (void)aimTargetChanged:(UISegmentedControl *)sender {
@@ -437,7 +379,6 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [self loadTab:currentTab];
 }
 
-// ====== MÀU ESP ======
 - (void)chooseColor {
     if (@available(iOS 14.0, *)) {
         UIColorPickerViewController *picker = [[UIColorPickerViewController alloc] init];
@@ -453,7 +394,6 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     if (colorView) colorView.backgroundColor = espColor;
 }
 
-// ====== LƯU / RESET ======
 - (void)savePressed {
     saveSettings();
     [self showAlert:@"✅ Thành công" message:@"Đã lưu cấu hình!"];
@@ -475,14 +415,11 @@ static UIButton* createButton(NSString *title, CGRect frame, UIColor *bgColor, i
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-// ====== ẨN MENU ======
 - (void)hideMenu {
     menuWindow.hidden = YES;
-    NSLog(@"📱 Menu hidden - features still active!");
 }
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    // Chạm ra ngoài menu cũng đóng
     UITouch *touch = [touches anyObject];
     CGPoint point = [touch locationInView:self.view];
     if (!CGRectContainsPoint(menuContainer.frame, point)) {
@@ -503,7 +440,6 @@ void showMenu() {
             menuWindow.userInteractionEnabled = YES;
         }
         menuWindow.hidden = NO;
-        NSLog(@"📱 Menu opened!");
     });
 }
 
@@ -516,7 +452,6 @@ static void setupGestures() {
         }
         if (!win) return;
         
-        // Xóa gesture cũ
         for (UIGestureRecognizer *gr in win.gestureRecognizers) {
             if ([gr isKindOfClass:[UITapGestureRecognizer class]]) {
                 UITapGestureRecognizer *tap = (UITapGestureRecognizer *)gr;
@@ -526,45 +461,63 @@ static void setupGestures() {
             }
         }
         
-        // Tạo gesture: 3 ngón chạm 2 lần
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(showMenu)];
         tap.numberOfTouchesRequired = 3;
         tap.numberOfTapsRequired = 2;
         tap.cancelsTouchesInView = NO;
         [win addGestureRecognizer:tap];
-        
-        NSLog(@"👆 Gesture ready: 3 fingers, 2 taps");
     });
 }
 
-// ====== HOOK GAME ======
-%hook GameManager
-- (void)Awake {
-    %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        setupGestures();
-    });
-}
-%end
-
-%hook UnityAppController
-- (void)applicationDidFinishLaunching:(UIApplication *)application {
-    %orig;
+// ====== HOOK BẰNG METHOD SWIZZLING ======
+static void (*orig_applicationDidFinishLaunching)(id self, SEL cmd, UIApplication *app);
+static void new_applicationDidFinishLaunching(id self, SEL cmd, UIApplication *app) {
+    if (orig_applicationDidFinishLaunching) {
+        orig_applicationDidFinishLaunching(self, cmd, app);
+    }
     loadSettings();
     resetAllFeatures();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         setupGestures();
-        NSLog(@"🔥 Granny Mod v2.0 loaded!");
     });
 }
-%end
+
+static void (*orig_Awake)(id self, SEL cmd);
+static void new_Awake(id self, SEL cmd) {
+    if (orig_Awake) {
+        orig_Awake(self, cmd);
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setupGestures();
+    });
+}
 
 // ====== CONSTRUCTOR ======
 __attribute__((constructor)) static void init() {
     loadSettings();
     resetAllFeatures();
+    
+    // Hook UnityAppController
+    Class unityClass = NSClassFromString(@"UnityAppController");
+    if (unityClass) {
+        Method origMethod = class_getInstanceMethod(unityClass, @selector(applicationDidFinishLaunching:));
+        if (origMethod) {
+            orig_applicationDidFinishLaunching = (void *)method_getImplementation(origMethod);
+            method_setImplementation(origMethod, (IMP)new_applicationDidFinishLaunching);
+        }
+    }
+    
+    // Hook GameManager
+    Class gameClass = NSClassFromString(@"GameManager");
+    if (gameClass) {
+        Method origMethod = class_getInstanceMethod(gameClass, @selector(Awake));
+        if (origMethod) {
+            orig_Awake = (void *)method_getImplementation(origMethod);
+            method_setImplementation(origMethod, (IMP)new_Awake);
+        }
+    }
+    
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         setupGestures();
-        NSLog(@"✅ Granny Mod v2.0 ready!");
     });
 }
