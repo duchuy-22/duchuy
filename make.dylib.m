@@ -1,596 +1,293 @@
 #import <UIKit/UIKit.h>
-#import <Foundation/Foundation.h>
-#import <OpenGLES/ES1/gl.h>
-#import <OpenGLES/ES1/glext.h>
+#import <objc/runtime.h>
 
-// ====== CONFIG ======
-#define MENU_WIDTH 380
-#define MENU_HEIGHT 520
-#define TAB_COUNT 4
+// Các biến trạng thái toàn cục
+static BOOL isAimbotActive = NO;
+static BOOL isEspActive = NO;
+static BOOL isGodMode = NO;
+static BOOL isHighSpeed = NO;
+static BOOL isVietnamese = YES;
 
-// ====== SINGLETON ======
-@interface GrannyMod : UIView {
-    // UI
-    UIView *menuView;
-    UISegmentedControl *tabControl;
-    UIButton *closeBtn;
-    UIView *tabContent;
-    BOOL isOpen;
-    BOOL isAnimating;
-    
-    // Aimbot
-    BOOL aimbotEnabled;
-    int aimTarget; // 0:Đầu, 1:Ngực, 2:Cổ, 3:Bụng
-    BOOL autoAim;
-    BOOL wallHack;
-    float fovSize;
-    
-    // ESP
-    BOOL espEnabled;
-    BOOL espBox;
-    BOOL espLine;
-    BOOL espSkeleton;
-    float espDistance;
-    UIColor *espColor;
-    
-    // Chức năng
-    BOOL godMode;
-    BOOL speedHack;
-    float speedMultiplier;
-    BOOL cameraBehind;
-    BOOL killGranny;
-    BOOL teleportItem;
-    int selectedItemIndex;
-    
-    // Tài khoản
-    NSString *userKey;
-    NSString *userName;
-    NSString *expiryDate;
-    BOOL isKeyValid;
-    
-    // Touch detection
-    int touchCount;
-    CGPoint touchPositions[3];
-    NSTimer *touchTimer;
+static UIWindow *menuWindow;
+static UIView *menuContainer;
+static UIViewController *rootVC;
+
+// Lưu cấu hình
+static void saveSettings() {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:isAimbotActive forKey:@"mod_aim"];
+    [defaults setBool:isEspActive forKey:@"mod_esp"];
+    [defaults setBool:isGodMode forKey:@"mod_god"];
+    [defaults setBool:isHighSpeed forKey:@"mod_spd"];
+    [defaults synchronize];
 }
 
-@property (nonatomic, assign) BOOL godModeEnabled;
-@property (nonatomic, assign) BOOL speedEnabled;
-@property (nonatomic, assign) float speedMultiplier;
-@property (nonatomic, assign) BOOL cameraBehind;
+// Đọc cấu hình
+static void loadSettings() {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    isAimbotActive = [defaults boolForKey:@"mod_aim"];
+    isEspActive = [defaults boolForKey:@"mod_esp"];
+    isGodMode = [defaults boolForKey:@"mod_god"];
+    isHighSpeed = [defaults boolForKey:@"mod_spd"];
+}
 
-+ (instancetype)sharedInstance;
-- (void)toggleMenu;
+// Reset tất cả chức năng
+static void resetAllFeatures() {
+    isAimbotActive = NO;
+    isEspActive = NO;
+    isGodMode = NO;
+    isHighSpeed = NO;
+    saveSettings();
+}
 
+@interface HuyModMenu : UIViewController
 @end
 
-// ====== IMPLEMENTATION ======
-@implementation GrannyMod
+@implementation HuyModMenu
 
-@synthesize godModeEnabled = godMode;
-@synthesize speedEnabled = speedHack;
-@synthesize speedMultiplier = speedMultiplier;
-@synthesize cameraBehind = cameraBehind;
-
-+ (instancetype)sharedInstance {
-    static GrannyMod *instance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        instance = [[GrannyMod alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    });
-    return instance;
-}
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (self) {
-        self.backgroundColor = [UIColor clearColor];
-        self.userInteractionEnabled = YES;
-        isOpen = NO;
-        isAnimating = NO;
-        
-        // Default settings
-        aimbotEnabled = NO;
-        aimTarget = 0;
-        autoAim = NO;
-        wallHack = NO;
-        fovSize = 150.0f;
-        
-        espEnabled = NO;
-        espBox = YES;
-        espLine = YES;
-        espSkeleton = NO;
-        espDistance = 100.0f;
-        espColor = [UIColor redColor];
-        
-        godMode = NO;
-        speedHack = NO;
-        speedMultiplier = 2.0f;
-        cameraBehind = NO;
-        killGranny = NO;
-        teleportItem = NO;
-        selectedItemIndex = 0;
-        
-        userKey = @"";
-        userName = @"";
-        expiryDate = @"";
-        isKeyValid = NO;
-        
-        [self setupMenu];
-    }
-    return self;
-}
-
-// ====== SETUP MENU ======
-- (void)setupMenu {
-    // Menu background
-    menuView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, MENU_WIDTH, MENU_HEIGHT)];
-    menuView.center = self.center;
-    menuView.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.95];
-    menuView.layer.cornerRadius = 20;
-    menuView.layer.borderWidth = 2;
-    menuView.layer.borderColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8].CGColor;
-    menuView.clipsToBounds = YES;
-    menuView.hidden = YES;
-    menuView.alpha = 0;
-    menuView.transform = CGAffineTransformMakeScale(0.8, 0.8);
-    [self addSubview:menuView];
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor clearColor];
     
-    // Header
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, MENU_WIDTH, 50)];
-    headerView.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1];
-    [menuView addSubview:headerView];
+    // Nền đen mờ phía sau (optional)
+    UIView *dimView = [[UIView alloc] initWithFrame:self.view.bounds];
+    dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.3];
+    dimView.userInteractionEnabled = NO;
+    [self.view addSubview:dimView];
     
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 10, 200, 30)];
-    titleLabel.text = @"🔥 GRANNY MOD MENU";
-    titleLabel.textColor = [UIColor colorWithRed:1.0 green:0.3 blue:0.3 alpha:1];
-    titleLabel.font = [UIFont boldSystemFontOfSize:20];
-    [headerView addSubview:titleLabel];
+    // Khung menu
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(50, 100, 300, 420)];
+    menuContainer.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.95];
+    menuContainer.layer.cornerRadius = 15;
+    menuContainer.layer.borderWidth = 1;
+    menuContainer.layer.borderColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.6].CGColor;
+    [self.view addSubview:menuContainer];
     
-    // Close button
-    closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(MENU_WIDTH - 50, 10, 40, 30);
+    // Tiêu đề
+    UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 10, 200, 30)];
+    titleLbl.text = @"🔥 HUY MOD MENU";
+    titleLbl.textColor = [UIColor colorWithRed:1.0 green:0.3 blue:0.3 alpha:1];
+    titleLbl.font = [UIFont boldSystemFontOfSize:18];
+    [menuContainer addSubview:titleLbl];
+    
+    // Nút X - chỉ ẩn menu chứ không tắt chức năng
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closeBtn.frame = CGRectMake(260, 10, 30, 30);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:24];
-    [closeBtn addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
-    [headerView addSubview:closeBtn];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:20];
+    [closeBtn addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
+    [menuContainer addSubview:closeBtn];
     
-    // Tab control
-    NSArray *tabItems = @[@"Aimbot", @"ESP", @"Chức năng", @"Tài khoản"];
-    tabControl = [[UISegmentedControl alloc] initWithItems:tabItems];
-    tabControl.frame = CGRectMake(10, 55, MENU_WIDTH - 20, 35);
-    tabControl.selectedSegmentIndex = 0;
-    tabControl.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    tabControl.selectedSegmentTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
-    [tabControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateNormal];
-    [tabControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateSelected];
-    [tabControl addTarget:self action:@selector(tabChanged:) forControlEvents:UIControlEventValueChanged];
-    [menuView addSubview:tabControl];
+    // Y: 50 - Switch Aimbot
+    UISwitch *aimSw = [[UISwitch alloc] initWithFrame:CGRectMake(20, 50, 51, 31)];
+    aimSw.on = isAimbotActive;
+    aimSw.onTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
+    [aimSw addTarget:self action:@selector(toggleAim:) forControlEvents:UIControlEventValueChanged];
+    [menuContainer addSubview:aimSw];
+    UILabel *aimLbl = [[UILabel alloc] initWithFrame:CGRectMake(80, 50, 200, 30)];
+    aimLbl.text = @"Aimbot";
+    aimLbl.textColor = [UIColor whiteColor];
+    aimLbl.font = [UIFont systemFontOfSize:16];
+    [menuContainer addSubview:aimLbl];
     
-    // Tab content
-    tabContent = [[UIView alloc] initWithFrame:CGRectMake(10, 95, MENU_WIDTH - 20, MENU_HEIGHT - 120)];
-    tabContent.backgroundColor = [UIColor clearColor];
-    [menuView addSubview:tabContent];
+    // Y: 100 - Switch ESP
+    UISwitch *espSw = [[UISwitch alloc] initWithFrame:CGRectMake(20, 100, 51, 31)];
+    espSw.on = isEspActive;
+    espSw.onTintColor = [UIColor colorWithRed:0.2 green:0.8 blue:0.2 alpha:0.8];
+    [espSw addTarget:self action:@selector(toggleEsp:) forControlEvents:UIControlEventValueChanged];
+    [menuContainer addSubview:espSw];
+    UILabel *espLbl = [[UILabel alloc] initWithFrame:CGRectMake(80, 100, 200, 30)];
+    espLbl.text = @"ESP";
+    espLbl.textColor = [UIColor whiteColor];
+    espLbl.font = [UIFont systemFontOfSize:16];
+    [menuContainer addSubview:espLbl];
     
-    // Load first tab
-    [self showTab:0];
+    // Y: 150 - Switch God Mode
+    UISwitch *godSw = [[UISwitch alloc] initWithFrame:CGRectMake(20, 150, 51, 31)];
+    godSw.on = isGodMode;
+    godSw.onTintColor = [UIColor colorWithRed:0.2 green:0.4 blue:1.0 alpha:0.8];
+    [godSw addTarget:self action:@selector(toggleGod:) forControlEvents:UIControlEventValueChanged];
+    [menuContainer addSubview:godSw];
+    UILabel *godLbl = [[UILabel alloc] initWithFrame:CGRectMake(80, 150, 200, 30)];
+    godLbl.text = @"God Mode";
+    godLbl.textColor = [UIColor whiteColor];
+    godLbl.font = [UIFont systemFontOfSize:16];
+    [menuContainer addSubview:godLbl];
+    
+    // Y: 200 - Switch High Speed
+    UISwitch *spdSw = [[UISwitch alloc] initWithFrame:CGRectMake(20, 200, 51, 31)];
+    spdSw.on = isHighSpeed;
+    spdSw.onTintColor = [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:0.8];
+    [spdSw addTarget:self action:@selector(toggleSpeed:) forControlEvents:UIControlEventValueChanged];
+    [menuContainer addSubview:spdSw];
+    UILabel *spdLbl = [[UILabel alloc] initWithFrame:CGRectMake(80, 200, 200, 30)];
+    spdLbl.text = @"High Speed";
+    spdLbl.textColor = [UIColor whiteColor];
+    spdLbl.font = [UIFont systemFontOfSize:16];
+    [menuContainer addSubview:spdLbl];
+    
+    // Separator line
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(20, 245, 260, 1)];
+    line.backgroundColor = [UIColor colorWithWhite:0.3 alpha:1];
+    [menuContainer addSubview:line];
+    
+    // Label "Tài Khoản" - Y: 260
+    UILabel *accLbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 260, 200, 25)];
+    accLbl.text = @"📱 TÀI KHOẢN";
+    accLbl.textColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:1];
+    accLbl.font = [UIFont boldSystemFontOfSize:15];
+    [menuContainer addSubview:accLbl];
+    
+    // Y: 290 - Nút Lưu Setting
+    UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    saveBtn.frame = CGRectMake(50, 290, 200, 40);
+    [saveBtn setTitle:@"💾 LƯU SETTING" forState:UIControlStateNormal];
+    [saveBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    saveBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:0.2 alpha:0.8];
+    saveBtn.layer.cornerRadius = 10;
+    saveBtn.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [saveBtn addTarget:self action:@selector(savePressed) forControlEvents:UIControlEventTouchUpInside];
+    [menuContainer addSubview:saveBtn];
+    
+    // Y: 340 - Nút Reset (Tắt tất cả)
+    UIButton *resetBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    resetBtn.frame = CGRectMake(50, 340, 200, 40);
+    [resetBtn setTitle:@"🔴 TẮT TẤT CẢ" forState:UIControlStateNormal];
+    [resetBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    resetBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.8];
+    resetBtn.layer.cornerRadius = 10;
+    resetBtn.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [resetBtn addTarget:self action:@selector(resetPressed) forControlEvents:UIControlEventTouchUpInside];
+    [menuContainer addSubview:resetBtn];
+    
+    // Version
+    UILabel *verLbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 390, 260, 20)];
+    verLbl.text = @"Version 1.0 | Huy Mod";
+    verLbl.textColor = [UIColor colorWithWhite:0.4 alpha:1];
+    verLbl.font = [UIFont systemFontOfSize:11];
+    verLbl.textAlignment = NSTextAlignmentCenter;
+    [menuContainer addSubview:verLbl];
 }
 
-// ====== TAB CHANGED ======
-- (void)tabChanged:(UISegmentedControl *)sender {
-    [self showTab:sender.selectedSegmentIndex];
+- (void)toggleAim:(UISwitch *)sw { 
+    isAimbotActive = sw.on; 
+    NSLog(@"🔫 Aimbot: %@", isAimbotActive ? @"ON" : @"OFF");
 }
 
-- (void)showTab:(int)index {
-    // Clear tab content
-    for (UIView *view in tabContent.subviews) {
-        [view removeFromSuperview];
-    }
-    
-    switch (index) {
-        case 0: [self drawAimbotTab]; break;
-        case 1: [self drawESPTab]; break;
-        case 2: [self drawChucNangTab]; break;
-        case 3: [self drawTaiKhoanTab]; break;
-    }
+- (void)toggleEsp:(UISwitch *)sw { 
+    isEspActive = sw.on; 
+    NSLog(@"👁️ ESP: %@", isEspActive ? @"ON" : @"OFF");
 }
 
-// ====== TAB: AIMBOT ======
-- (void)drawAimbotTab {
-    float y = 0;
-    float spacing = 45;
-    
-    // Aimbot toggle
-    UISwitch *aimbotSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:aimbotEnabled tag:100];
-    [self addLabel:@"🔫 Aimbot" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:aimbotSwitch];
-    y += spacing;
-    
-    // Auto aim toggle
-    UISwitch *autoAimSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:autoAim tag:101];
-    [self addLabel:@"🎯 Tự động ngắm" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:autoAimSwitch];
-    y += spacing;
-    
-    // Wall hack toggle
-    UISwitch *wallSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:wallHack tag:102];
-    [self addLabel:@"🧱 Xuyên tường" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:wallSwitch];
-    y += spacing;
-    
-    // Aim target
-    [self addLabel:@"🎯 Vị trí ngắm:" frame:CGRectMake(0, y, 200, 30) toView:tabContent];
-    y += 35;
-    
-    UISegmentedControl *targetSeg = [[UISegmentedControl alloc] initWithItems:@[@"Đầu", @"Ngực", @"Cổ", @"Bụng"]];
-    targetSeg.frame = CGRectMake(0, y, 300, 35);
-    targetSeg.selectedSegmentIndex = aimTarget;
-    targetSeg.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    targetSeg.selectedSegmentTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
-    [targetSeg setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateNormal];
-    [targetSeg setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateSelected];
-    [targetSeg addTarget:self action:@selector(targetChanged:) forControlEvents:UIControlEventValueChanged];
-    [tabContent addSubview:targetSeg];
-    y += spacing + 10;
-    
-    // FOV slider
-    [self addLabel:[NSString stringWithFormat:@"📏 FOV: %.0f", fovSize] frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(150, y, 150, 30)];
-    fovSlider.minimumValue = 30;
-    fovSlider.maximumValue = 300;
-    fovSlider.value = fovSize;
-    [fovSlider addTarget:self action:@selector(fovChanged:) forControlEvents:UIControlEventValueChanged];
-    [tabContent addSubview:fovSlider];
+- (void)toggleGod:(UISwitch *)sw { 
+    isGodMode = sw.on; 
+    NSLog(@"🛡️ God Mode: %@", isGodMode ? @"ON" : @"OFF");
 }
 
-// ====== TAB: ESP ======
-- (void)drawESPTab {
-    float y = 0;
-    float spacing = 45;
-    
-    // ESP toggle
-    UISwitch *espSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:espEnabled tag:200];
-    [self addLabel:@"👁️ ESP" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:espSwitch];
-    y += spacing;
-    
-    // Box toggle
-    UISwitch *boxSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:espBox tag:201];
-    [self addLabel:@"📦 Box" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:boxSwitch];
-    y += spacing;
-    
-    // Line toggle
-    UISwitch *lineSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:espLine tag:202];
-    [self addLabel:@"📏 Line" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:lineSwitch];
-    y += spacing;
-    
-    // Skeleton toggle
-    UISwitch *skeletonSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:espSkeleton tag:203];
-    [self addLabel:@"🦴 Skeleton" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:skeletonSwitch];
-    y += spacing;
-    
-    // Color button
-    UIButton *colorBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    colorBtn.frame = CGRectMake(0, y, 200, 35);
-    [colorBtn setTitle:@"🎨 Chọn màu ESP" forState:UIControlStateNormal];
-    colorBtn.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    colorBtn.layer.cornerRadius = 10;
-    [colorBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [colorBtn addTarget:self action:@selector(chooseColor) forControlEvents:UIControlEventTouchUpInside];
-    [tabContent addSubview:colorBtn];
-    y += spacing + 10;
-    
-    // Distance slider
-    [self addLabel:[NSString stringWithFormat:@"📡 Khoảng cách: %.0fm", espDistance] frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    UISlider *distSlider = [[UISlider alloc] initWithFrame:CGRectMake(150, y, 150, 30)];
-    distSlider.minimumValue = 10;
-    distSlider.maximumValue = 200;
-    distSlider.value = espDistance;
-    [distSlider addTarget:self action:@selector(distChanged:) forControlEvents:UIControlEventValueChanged];
-    [tabContent addSubview:distSlider];
+- (void)toggleSpeed:(UISwitch *)sw { 
+    isHighSpeed = sw.on; 
+    NSLog(@"⚡ High Speed: %@", isHighSpeed ? @"ON" : @"OFF");
 }
 
-// ====== TAB: CHỨC NĂNG ======
-- (void)drawChucNangTab {
-    float y = 0;
-    float spacing = 45;
-    
-    // God mode
-    UISwitch *godSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:godMode tag:300];
-    [self addLabel:@"🛡️ Bất tử" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:godSwitch];
-    y += spacing;
-    
-    // Speed hack
-    UISwitch *speedSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:speedHack tag:301];
-    [self addLabel:@"⚡ Speed Hack" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:speedSwitch];
-    y += spacing;
-    
-    // Speed slider
-    [self addLabel:[NSString stringWithFormat:@"Tốc độ: %.1fx", speedMultiplier] frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    UISlider *speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(150, y, 150, 30)];
-    speedSlider.minimumValue = 1.0;
-    speedSlider.maximumValue = 10.0;
-    speedSlider.value = speedMultiplier;
-    [speedSlider addTarget:self action:@selector(speedChanged:) forControlEvents:UIControlEventValueChanged];
-    [tabContent addSubview:speedSlider];
-    y += spacing;
-    
-    // Camera behind
-    UISwitch *camSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:cameraBehind tag:302];
-    [self addLabel:@"📷 Camera sau lưng" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:camSwitch];
-    y += spacing;
-    
-    // Kill Granny
-    UISwitch *killSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:killGranny tag:303];
-    [self addLabel:@"💀 Kill bà ngoại" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:killSwitch];
-    y += spacing;
-    
-    // Teleport items
-    UISwitch *teleSwitch = [self createSwitch:CGRectMake(180, y, 51, 31) value:teleportItem tag:304];
-    [self addLabel:@"📦 Teleport vật phẩm" frame:CGRectMake(0, y, 150, 30) toView:tabContent];
-    [tabContent addSubview:teleSwitch];
-    y += spacing;
-    
-    // Item selection
-    [self addLabel:@"Chọn vật phẩm:" frame:CGRectMake(0, y, 200, 30) toView:tabContent];
-    y += 35;
-    
-    UISegmentedControl *itemSeg = [[UISegmentedControl alloc] initWithItems:@[@"Key", @"Búa", @"Đạn", @"Thuốc", @"Súng"]];
-    itemSeg.frame = CGRectMake(0, y, 300, 35);
-    itemSeg.selectedSegmentIndex = selectedItemIndex;
-    itemSeg.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    itemSeg.selectedSegmentTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
-    [itemSeg setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateNormal];
-    [itemSeg setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateSelected];
-    [itemSeg addTarget:self action:@selector(itemChanged:) forControlEvents:UIControlEventValueChanged];
-    [tabContent addSubview:itemSeg];
+- (void)hideMenu { 
+    // CHỈ ẨN menu, KHÔNG TẮT chức năng
+    menuWindow.hidden = YES; 
+    NSLog(@"📱 Menu hidden - features still active");
 }
 
-// ====== TAB: TÀI KHOẢN ======
-- (void)drawTaiKhoanTab {
-    float y = 0;
-    float spacing = 45;
+- (void)savePressed {
+    saveSettings();
+    NSLog(@"💾 Settings saved!");
     
-    [self addLabel:@"🔑 KEY:" frame:CGRectMake(0, y, 60, 30) toView:tabContent];
-    
-    UITextField *keyField = [[UITextField alloc] initWithFrame:CGRectMake(70, y, 180, 35)];
-    keyField.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    keyField.textColor = [UIColor whiteColor];
-    keyField.placeholder = @"Nhập key...";
-    keyField.text = userKey;
-    keyField.layer.cornerRadius = 8;
-    keyField.layer.borderWidth = 1;
-    keyField.layer.borderColor = [UIColor grayColor].CGColor;
-    [keyField addTarget:self action:@selector(keyChanged:) forControlEvents:UIControlEventEditingChanged];
-    [tabContent addSubview:keyField];
-    
-    UIButton *confirmBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    confirmBtn.frame = CGRectMake(260, y, 60, 35);
-    [confirmBtn setTitle:@"✅" forState:UIControlStateNormal];
-    confirmBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.8 blue:0.2 alpha:0.5];
-    confirmBtn.layer.cornerRadius = 8;
-    [confirmBtn addTarget:self action:@selector(confirmKey) forControlEvents:UIControlEventTouchUpInside];
-    [tabContent addSubview:confirmBtn];
-    y += spacing + 10;
-    
-    [self addLabel:[NSString stringWithFormat:@"👤 User: %@", userName] frame:CGRectMake(0, y, 300, 30) toView:tabContent];
-    y += spacing - 10;
-    
-    [self addLabel:[NSString stringWithFormat:@"⏳ Hết hạn: %@", expiryDate] frame:CGRectMake(0, y, 300, 30) toView:tabContent];
-    y += spacing - 10;
-    
-    if (isKeyValid) {
-        UILabel *status = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 300, 30)];
-        status.text = @"✅ Đã kích hoạt!";
-        status.textColor = [UIColor greenColor];
-        status.font = [UIFont boldSystemFontOfSize:16];
-        [tabContent addSubview:status];
-    } else {
-        UILabel *status = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 300, 30)];
-        status.text = @"❌ Chưa kích hoạt!";
-        status.textColor = [UIColor redColor];
-        status.font = [UIFont boldSystemFontOfSize:16];
-        [tabContent addSubview:status];
-    }
-}
-
-// ====== UI HELPERS ======
-- (UISwitch *)createSwitch:(CGRect)frame value:(BOOL)value tag:(int)tag {
-    UISwitch *switchControl = [[UISwitch alloc] initWithFrame:frame];
-    switchControl.on = value;
-    switchControl.tag = tag;
-    switchControl.onTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.8];
-    [switchControl addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    return switchControl;
-}
-
-- (void)addLabel:(NSString *)text frame:(CGRect)frame toView:(UIView *)view {
-    UILabel *label = [[UILabel alloc] initWithFrame:frame];
-    label.text = text;
-    label.textColor = [UIColor whiteColor];
-    label.font = [UIFont systemFontOfSize:16];
-    [view addSubview:label];
-}
-
-// ====== SWITCH HANDLERS ======
-- (void)switchChanged:(UISwitch *)sender {
-    switch (sender.tag) {
-        case 100: aimbotEnabled = sender.on; break;
-        case 101: autoAim = sender.on; break;
-        case 102: wallHack = sender.on; break;
-        case 200: espEnabled = sender.on; break;
-        case 201: espBox = sender.on; break;
-        case 202: espLine = sender.on; break;
-        case 203: espSkeleton = sender.on; break;
-        case 300: godMode = sender.on; break;
-        case 301: speedHack = sender.on; break;
-        case 302: cameraBehind = sender.on; break;
-        case 303: killGranny = sender.on; [self killGrannyNow]; break;
-        case 304: teleportItem = sender.on; if (sender.on) [self teleportSelectedItem]; break;
-    }
-}
-
-- (void)targetChanged:(UISegmentedControl *)sender {
-    aimTarget = (int)sender.selectedSegmentIndex;
-}
-
-- (void)itemChanged:(UISegmentedControl *)sender {
-    selectedItemIndex = (int)sender.selectedSegmentIndex;
-}
-
-- (void)fovChanged:(UISlider *)sender {
-    fovSize = sender.value;
-    [self refreshTab:0];
-}
-
-- (void)distChanged:(UISlider *)sender {
-    espDistance = sender.value;
-    [self refreshTab:1];
-}
-
-- (void)speedChanged:(UISlider *)sender {
-    speedMultiplier = sender.value;
-    [self refreshTab:2];
-}
-
-- (void)refreshTab:(int)index {
-    [self showTab:index];
-    tabControl.selectedSegmentIndex = index;
-}
-
-// ====== KEY FUNCTIONS ======
-- (void)keyChanged:(UITextField *)sender {
-    userKey = sender.text;
-}
-
-- (void)confirmKey {
-    if ([userKey isEqualToString:@""]) {
-        [self showAlert:@"⚠️" message:@"Vui lòng nhập key!"];
-        return;
-    }
-    
-    // MOCK - Thực tế gọi Firebase
-    if ([userKey length] > 5) {
-        isKeyValid = YES;
-        userName = @"User_" + userKey;
-        expiryDate = @"2026-12-31";
-        [self showAlert:@"✅" message:@"Key hợp lệ!"];
-        [self refreshTab:3];
-    } else {
-        [self showAlert:@"❌" message:@"Key không hợp lệ!"];
-    }
-}
-
-- (void)showAlert:(NSString *)title message:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
+    // Thông báo đã lưu
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"✅ Thành công" 
+                                                                   message:@"Đã lưu cấu hình!" 
+                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    UIViewController *rootVC = [self topViewController];
-    if (rootVC) [rootVC presentViewController:alert animated:YES completion:nil];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (UIViewController *)topViewController {
-    UIViewController *rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-    while (rootVC.presentedViewController) {
-        rootVC = rootVC.presentedViewController;
-    }
-    return rootVC;
-}
-
-// ====== COLOR PICKER ======
-- (void)chooseColor {
-    // Mở color picker (iOS 14+)
-    if (@available(iOS 14.0, *)) {
-        UIColorPickerViewController *picker = [[UIColorPickerViewController alloc] init];
-        picker.delegate = self;
-        picker.selectedColor = espColor;
-        UIViewController *rootVC = [self topViewController];
-        if (rootVC) [rootVC presentViewController:picker animated:YES completion:nil];
-    }
-}
-
-- (void)colorPickerViewControllerDidFinish:(UIColorPickerViewController *)viewController {
-    espColor = viewController.selectedColor;
-    [self refreshTab:1];
-}
-
-// ====== CHỨC NĂNG GAME ======
-- (void)killGrannyNow {
-    // Tìm object Granny và kill
-    // Cần dump game để biết class
-    NSLog(@"💀 Killing Granny...");
-}
-
-- (void)teleportSelectedItem {
-    // Teleport item được chọn về trước mặt
-    NSArray *items = @[@"Key", @"Hammer", @"Ammo", @"Medkit", @"Weapon"];
-    NSLog(@"📦 Teleport: %@", items[selectedItemIndex]);
-}
-
-// ====== TOUCH DETECTION (3 ngón) ======
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    if (touches.count == 3) {
-        touchCount = 0;
-        for (UITouch *touch in touches) {
-            if (touch.phase == UITouchPhaseBegan) {
-                touchCount++;
-            }
-        }
-        if (touchCount >= 3) {
-            [self toggleMenu];
-        }
-    }
-}
-
-// ====== TOGGLE MENU ======
-- (void)toggleMenu {
-    if (isAnimating) return;
-    isOpen = !isOpen;
-    isAnimating = YES;
+- (void)resetPressed {
+    resetAllFeatures();
     
-    [UIView animateWithDuration:0.3
-                          delay:0
-         usingSpringWithDamping:0.8
-          initialSpringVelocity:0.5
-                        options:UIViewAnimationOptionCurveEaseInOut
-                     animations:^{
-        if (self->isOpen) {
-            self->menuView.hidden = NO;
-            self->menuView.alpha = 1;
-            self->menuView.transform = CGAffineTransformIdentity;
-        } else {
-            self->menuView.alpha = 0;
-            self->menuView.transform = CGAffineTransformMakeScale(0.7, 0.7);
+    // Cập nhật lại UI các switch
+    for (UIView *view in menuContainer.subviews) {
+        if ([view isKindOfClass:[UISwitch class]]) {
+            UISwitch *sw = (UISwitch *)view;
+            sw.on = NO;
         }
-    } completion:^(BOOL finished) {
-        if (!self->isOpen) {
-            self->menuView.hidden = YES;
-        }
-        self->isAnimating = NO;
-    }];
+    }
+    
+    NSLog(@"🔴 All features reset!");
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🔄 Đã tắt" 
+                                                                   message:@"Tất cả chức năng đã được tắt!" 
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    // Chạm bên ngoài menu cũng ẩn menu (tùy chọn)
 }
 
 @end
 
-// ====== ENTRY POINT (Tự động load) ======
-__attribute__((constructor))
-static void init() {
+// Hàm mở menu
+void showMenu() {
     dispatch_async(dispatch_get_main_queue(), ^{
-        GrannyMod *menu = [GrannyMod sharedInstance];
-        UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-        if (!keyWindow) {
-            keyWindow = [[[UIApplication sharedApplication] windows] firstObject];
+        if (!menuWindow) {
+            menuWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            menuWindow.windowLevel = UIWindowLevelAlert + 1;
+            menuWindow.backgroundColor = [UIColor clearColor];
+            menuWindow.rootViewController = [[HuyModMenu alloc] init];
+            menuWindow.userInteractionEnabled = YES;
         }
-        if (keyWindow) {
-            [keyWindow addSubview:menu];
-            NSLog(@"🔥 GrannyMod loaded!");
+        menuWindow.hidden = NO;
+        NSLog(@"📱 Menu opened!");
+    });
+}
+
+// Hàm setup gesture - nhấp 3 ngón vào màn hình 2 lần
+static void setupGestures() {
+    UIWindow *win = [UIApplication sharedApplication].keyWindow;
+    if (!win) {
+        win = [[[UIApplication sharedApplication] windows] firstObject];
+    }
+    if (!win) return;
+    
+    // Xóa gesture cũ nếu có
+    for (UIGestureRecognizer *gr in win.gestureRecognizers) {
+        if ([gr isKindOfClass:[UITapGestureRecognizer class]]) {
+            UITapGestureRecognizer *tap = (UITapGestureRecognizer *)gr;
+            if (tap.numberOfTouchesRequired == 3 && tap.numberOfTapsRequired == 2) {
+                [win removeGestureRecognizer:gr];
+            }
         }
+    }
+    
+    // Tạo gesture mới: 3 ngón, chạm 2 lần
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(showMenu)];
+    tap.numberOfTouchesRequired = 3;
+    tap.numberOfTapsRequired = 2;
+    [win addGestureRecognizer:tap];
+    
+    NSLog(@"👆 Gesture set: 3 fingers, 2 taps");
+}
+
+// Hàm khởi tạo khi load dylib
+__attribute__((constructor)) static void init() {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        // Load settings từ bộ nhớ
+        loadSettings();
+        
+        // Reset toàn bộ chức năng về OFF khi khởi động
+        resetAllFeatures();
+        
+        // Setup gesture
+        setupGestures();
+        
+        NSLog(@"🔥 Huy Mod loaded! All features OFF by default.");
     });
 }
