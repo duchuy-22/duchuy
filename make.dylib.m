@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <mach-o/dyld.h>
+#import <mach/mach.h>
 
 // =====================================================================
 // ĐỊNH NGHĨA CỨNG CÁC ĐỊNH DANH ĐỂ TRÁNH LỖI PHÂN GIẢI TRÊN MÁY ẢO GITHUB
@@ -20,24 +21,23 @@
 #endif
 
 // =====================================================================
-// KHU VỰC ĐIỀN OFFSET GAME THỰC TẾ (SẾP HUY TỰ THAY KHI DUMP ĐƯỢC OFFSET)
+// BIẾN LƯU OFFSET TỰ ĐỘNG TÌM
 // =====================================================================
-// Ví dụ: Khi sếp dùng Il2CppDumper xuất ra file script.json, hãy lấy địa chỉ điền vào đây.
-static uintptr_t const OFFSET_PLAYER_SPEED = 0x1A2B3C; // Thay bằng Offset tốc độ chạy thực tế
-static uintptr_t const OFFSET_TAKE_DAMAGE  = 0x4D5E6F; // Thay bằng Offset nhận sát thương (God Mode)
-static uintptr_t const OFFSET_CAMERA_FOV   = 0x7A8B9C; // Thay bằng Offset góc nhìn Camera FOV
-
-// Tên Framework chính chứa mã nguồn game (Mặc định Unity là UnityFramework)
-static const char *const TARGET_FRAMEWORK_NAME = "UnityFramework";
+static uintptr_t g_playerHealthOffset = 0;
+static uintptr_t g_playerSpeedOffset = 0;
+static uintptr_t g_cameraFovOffset = 0;
+static uintptr_t g_grannyPositionOffset = 0;
+static uintptr_t g_grannyIsDeadOffset = 0;
+static uintptr_t g_keyCountOffset = 0;
 
 // =====================================================================
-// CẤU HÌNH LIÊN KẾT DATABASE FIREBASE THẬT CỦA SẾP HUY
+// CẤU HÌNH FIREBASE
 // =====================================================================
 static NSString *const FIREBASE_DB_URL = @"https://duchuy-75d5d-default-rtdb.firebaseio.com";
 static NSString *const APP_ID = @"granny_v1_vip";
 
 // =====================================================================
-// BIẾN TRẠNG THÁI TOÀN CỤC CỦA HỆ THỐNG MENU MOD (ĐẢM BẢO CHẠY NGẦM LIÊN TỤC)
+// BIẾN TRẠNG THÁI TOÀN CỤC
 // =====================================================================
 static BOOL isKeyValidated = NO;
 static NSString *currentActiveKey = @"";
@@ -45,38 +45,33 @@ static NSString *usernameInfo = @"Chưa đăng ký";
 static NSTimeInterval keyExpirationTimestamp = 0;
 static NSTimer *countdownTimer = nil;
 
-// Tùy chỉnh Menu
 static BOOL isVietnamese = YES;
-static NSInteger menuStyleCorner = 1; // 0 = Góc vuông, 1 = Góc tròn
-static UIColor *menuAccentColor;
-static NSInteger accentColorIndex = 0; // 0 = Cam, 1 = Xanh lá, 2 = Xanh dương
+static NSInteger menuStyleCorner = 1;
+static UIColor *menuAccentColor = nil;
+static NSInteger accentColorIndex = 0;
 
-// Cấu hình Aimbot (Mặc định tắt hoàn toàn khi khởi động)
 static BOOL isAimbotActive = NO;
-static NSString *aimTargetPosition = @"Đầu"; 
-static BOOL isAimbotAlways = NO; 
-static BOOL isAimThroughWall = NO; 
+static NSString *aimTargetPosition = @"Đầu";
+static BOOL isAimbotAlways = NO;
+static BOOL isAimThroughWall = NO;
 static float aimbotFovRadius = 120.0f;
 static BOOL showFovCircle = YES;
 
-// Cấu hình ESP
 static BOOL isEspActive = NO;
 static BOOL isEspLines = YES;
 static BOOL isEspBoxes = YES;
 static BOOL isEspSkeleton = YES;
 static float espMaxDistance = 250.0f;
-static UIColor *espColor;
-static NSInteger espColorIndex = 0; // 0 = Đỏ, 1 = Xanh lá, 2 = Vàng
+static UIColor *espColor = nil;
+static NSInteger espColorIndex = 0;
 
-// Cấu hình hack game chính (Sẽ được xử lý bởi Core Hooking dựa trên Offset phía trên)
 static BOOL isGodMode = NO;
 static BOOL isHighSpeed = NO;
 static float cameraFov = 60.0f;
 static NSString *selectedItemToSpawn = @"Shotgun";
 
-// Các phần tử giao diện tĩnh (Đảm bảo không bị giải phóng bộ nhớ khi đóng/mở)
-static UIWindow *floatingButtonWindow = nil; // Cửa sổ chứa Logo White Hat
-static UIWindow *overlayMenuWindow = nil;    // Cửa sổ chứa Menu & FOV
+static UIWindow *floatingButtonWindow = nil;
+static UIWindow *overlayMenuWindow = nil;
 static UIView *menuContainer = nil;
 static UIView *authPanel = nil;
 static UIView *mainModPanel = nil;
@@ -87,7 +82,9 @@ static UILabel *keyDisplayLabel = nil;
 static CAShapeLayer *fovCircleLayer = nil;
 static UIButton *floatingLogoBtn = nil;
 
-// Forward Declaration
+// =====================================================================
+// FORWARD DECLARATION
+// =====================================================================
 @interface HuyMenuController : UIViewController <UITextFieldDelegate>
 @property (nonatomic, strong) UIView *sidebar;
 @property (nonatomic, strong) UIView *contentArea;
@@ -99,88 +96,187 @@ static UIButton *floatingLogoBtn = nil;
 @end
 
 // =====================================================================
-// BỘ DÒ TÌM BASE ADDRESS & ENGINE HOOK THỰC TẾ
+// BỘ TỰ ĐỘNG TÌM OFFSET BẰNG MACH VIRTUAL MEMORY
 // =====================================================================
-// Tìm kiếm địa chỉ đang chạy thực tế của game trong RAM để cộng dồn với Offset
-static uintptr_t get_Game_Base_Address() {
-    uintptr_t base_address = 0;
-    uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; i++) {
+
+// Hàm đọc bộ nhớ
+static kern_return_t readMemory(uintptr_t address, void *buffer, size_t size) {
+    mach_port_t task = mach_task_self();
+    vm_size_t outSize;
+    return vm_read_overwrite(task, (vm_address_t)address, size, (vm_address_t)buffer, &outSize);
+}
+
+// Hàm quét tìm giá trị float trong bộ nhớ
+static uintptr_t scanForFloatValue(float targetValue, float tolerance, uintptr_t startAddr, uintptr_t endAddr) {
+    uintptr_t current = startAddr;
+    float buffer[1024];
+    
+    while (current < endAddr) {
+        size_t bytesToRead = sizeof(buffer);
+        if (current + bytesToRead > endAddr) {
+            bytesToRead = endAddr - current;
+        }
+        
+        kern_return_t kr = readMemory(current, buffer, bytesToRead);
+        if (kr == KERN_SUCCESS) {
+            size_t count = bytesToRead / sizeof(float);
+            for (size_t i = 0; i < count; i++) {
+                if (fabs(buffer[i] - targetValue) < tolerance) {
+                    return current + (i * sizeof(float));
+                }
+            }
+        }
+        current += bytesToRead;
+    }
+    return 0;
+}
+
+// Hàm quét tìm giá trị int trong bộ nhớ
+static uintptr_t scanForIntValue(int targetValue, uintptr_t startAddr, uintptr_t endAddr) {
+    uintptr_t current = startAddr;
+    int buffer[1024];
+    
+    while (current < endAddr) {
+        size_t bytesToRead = sizeof(buffer);
+        if (current + bytesToRead > endAddr) {
+            bytesToRead = endAddr - current;
+        }
+        
+        kern_return_t kr = readMemory(current, buffer, bytesToRead);
+        if (kr == KERN_SUCCESS) {
+            size_t count = bytesToRead / sizeof(int);
+            for (size_t i = 0; i < count; i++) {
+                if (buffer[i] == targetValue) {
+                    return current + (i * sizeof(int));
+                }
+            }
+        }
+        current += bytesToRead;
+    }
+    return 0;
+}
+
+// Hàm tự động tìm offset bằng cách quét bộ nhớ
+static void autoFindAllOffsets() {
+    uintptr_t base = get_Framework_Base_Address();
+    if (base == 0) {
+        NSLog(@"❌ Không tìm thấy Framework base address!");
+        return;
+    }
+    
+    // Quét trong phạm vi 20MB từ base
+    uintptr_t startAddr = base;
+    uintptr_t endAddr = base + 0x1400000; // 20MB
+    
+    NSLog(@"🔍 Bắt đầu quét tìm offset trong khoảng 0x%lx - 0x%lx", startAddr, endAddr);
+    
+    // Tìm offset của máu (giá trị float 100.0)
+    g_playerHealthOffset = scanForFloatValue(100.0f, 0.5f, startAddr, endAddr);
+    if (g_playerHealthOffset != 0) {
+        NSLog(@"✅ Tìm thấy offset máu: 0x%lx", g_playerHealthOffset);
+    } else {
+        // Thử tìm giá trị 100 dạng int
+        g_playerHealthOffset = scanForIntValue(100, startAddr, endAddr);
+        if (g_playerHealthOffset != 0) {
+            NSLog(@"✅ Tìm thấy offset máu (int): 0x%lx", g_playerHealthOffset);
+        }
+    }
+    
+    // Tìm offset của speed (giá trị float 5.0 - speed mặc định)
+    g_playerSpeedOffset = scanForFloatValue(5.0f, 0.5f, startAddr, endAddr);
+    if (g_playerSpeedOffset != 0) {
+        NSLog(@"✅ Tìm thấy offset speed: 0x%lx", g_playerSpeedOffset);
+    }
+    
+    // Tìm offset của FOV (giá trị float 60.0)
+    g_cameraFovOffset = scanForFloatValue(60.0f, 0.5f, startAddr, endAddr);
+    if (g_cameraFovOffset != 0) {
+        NSLog(@"✅ Tìm thấy offset FOV: 0x%lx", g_cameraFovOffset);
+    }
+    
+    // Tìm offset của key (giá trị int 0 hoặc 1)
+    g_keyCountOffset = scanForIntValue(0, startAddr, endAddr);
+    if (g_keyCountOffset != 0) {
+        NSLog(@"✅ Tìm thấy offset key: 0x%lx", g_keyCountOffset);
+    }
+    
+    NSLog(@"🔍 Hoàn tất quét offset!");
+}
+
+// =====================================================================
+// HÀM LẤY BASE ADDRESS
+// =====================================================================
+static uintptr_t get_Framework_Base_Address() {
+    uint32_t imageCount = _dyld_image_count();
+    for (uint32_t i = 0; i < imageCount; i++) {
         const char *name = _dyld_get_image_name(i);
-        if (name && strstr(name, TARGET_FRAMEWORK_NAME) != NULL) {
-            // Lấy địa chỉ slide (Base ASLR) của Framework
-            base_address = (uintptr_t)_dyld_get_image_vmaddr_slide(i);
-            break;
+        if (name && strstr(name, "UnityFramework") != NULL) {
+            return (uintptr_t)_dyld_get_image_vmaddr_slide(i);
         }
     }
-    // Nếu game chạy độc lập không qua Framework, lấy base của Executable chính
-    if (base_address == 0) {
-        base_address = (uintptr_t)_dyld_get_image_vmaddr_slide(0);
-    }
-    return base_address;
+    return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
 }
 
-// 1. Logic Hook Speed (Tốc độ di chuyển)
-static float (*orig_get_Speed)(void *instance);
-float hook_get_Speed(void *instance) {
-    if (isHighSpeed && isKeyValidated) {
-        return 30.0f; // Ép nhân vật chạy với tốc độ siêu nhanh (Có thể tùy chỉnh)
-    }
-    return orig_get_Speed(instance);
-}
-
-// 2. Logic Hook God Mode (Bất tử máu)
-static void (*orig_takeDamage)(void *instance, float damage);
-void hook_takeDamage(void *instance, float damage) {
-    if (isGodMode && isKeyValidated) {
-        return; // Hủy toàn bộ sát thương nhận vào!
-    }
-    orig_takeDamage(instance, damage);
-}
-
-// 3. Logic Hook Camera FOV (Góc nhìn rộng)
-static float (*orig_get_fieldOfView)(void *instance);
-float hook_get_fieldOfView(void *instance) {
-    if (isKeyValidated) {
-        return cameraFov; // Đồng bộ trực tiếp theo thanh kéo FOV của sếp Huy!
-    }
-    return orig_get_fieldOfView(instance);
-}
-
-// Khởi tạo các điểm Hook thực tế lên phân vùng bộ nhớ RAM của game
-static void setupRealGameEngineHooks() {
-    uintptr_t base = get_Game_Base_Address();
-    if (base == 0) return;
-
-    // Load CydiaSubstrate động để thực hiện Hook mã máy
-    void *substrate = dlopen("/usr/lib/libsubstrate.dylib", RTLD_LAZY);
-    if (substrate) {
-        void (*MSHookFunction)(void *, void *, void **) = dlsym(substrate, "MSHookFunction");
-        if (MSHookFunction) {
-            
-            // 🌟 HOOK TỐC ĐỘ CHẠY (BASE + OFFSET THẬT)
-            if (OFFSET_PLAYER_SPEED > 0) {
-                void *speed_addr = (void *)(base + OFFSET_PLAYER_SPEED);
-                MSHookFunction(speed_addr, (void *)hook_get_Speed, (void **)&orig_get_Speed);
-            }
-            
-            // 🌟 HOOK BẤT TỬ MÁU (BASE + OFFSET THẬT)
-            if (OFFSET_TAKE_DAMAGE > 0) {
-                void *damage_addr = (void *)(base + OFFSET_TAKE_DAMAGE);
-                MSHookFunction(damage_addr, (void *)hook_takeDamage, (void **)&orig_takeDamage);
-            }
-            
-            // 🌟 HOOK GÓC NHÌN RỘNG (BASE + OFFSET THẬT)
-            if (OFFSET_CAMERA_FOV > 0) {
-                void *fov_addr = (void *)(base + OFFSET_CAMERA_FOV);
-                MSHookFunction(fov_addr, (void *)hook_get_fieldOfView, (void **)&orig_get_fieldOfView);
-            }
-        }
+// =====================================================================
+// HÀM PATCH MEMORY
+// =====================================================================
+static void patchMemory(uintptr_t address, const void *bytes, size_t size) {
+    if (address == 0 || address < 0x100000) return;
+    
+    mach_port_t task = mach_task_self();
+    kern_return_t err;
+    
+    err = vm_protect(task, (vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+    if (err == KERN_SUCCESS) {
+        memcpy((void *)address, bytes, size);
+        vm_protect(task, (vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
     }
 }
 
 // =====================================================================
-// HÀM ĐỒNG BỘ & LƯU TRỮ CẤU HÌNH VÀO THIẾT BỊ (SAVE/LOAD SETTINGS)
+// HOOK FUNCTIONS DÙNG OFFSET TỰ TÌM
+// =====================================================================
+static void updateGameSpeedHack() {
+    uintptr_t base = get_Framework_Base_Address();
+    if (base == 0 || g_playerSpeedOffset == 0) return;
+    
+    uintptr_t speedAddress = base + g_playerSpeedOffset;
+    if (isHighSpeed && isKeyValidated) {
+        uint32_t patchBytes[] = {0x528003c0, 0xD65F03C0};
+        patchMemory(speedAddress, patchBytes, sizeof(patchBytes));
+    } else {
+        uint32_t originalBytes[] = {0xaa0003e0, 0xd65f03c0};
+        patchMemory(speedAddress, originalBytes, sizeof(originalBytes));
+    }
+}
+
+static void updateGodModeHack() {
+    uintptr_t base = get_Framework_Base_Address();
+    if (base == 0 || g_playerHealthOffset == 0) return;
+    
+    uintptr_t healthAddress = base + g_playerHealthOffset;
+    if (isGodMode && isKeyValidated) {
+        float health = 9999.0f;
+        patchMemory(healthAddress, &health, sizeof(health));
+    }
+}
+
+// =====================================================================
+// HÀM LẤY ACTIVE WINDOW SCENE
+// =====================================================================
+static UIWindowScene* getActiveWindowScene() {
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                return (UIWindowScene *)scene;
+            }
+        }
+    }
+    return nil;
+}
+
+// =====================================================================
+// LƯU/LOAD SETTINGS
 // =====================================================================
 static void loadSavedModSettings() {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -191,23 +287,19 @@ static void loadSavedModSettings() {
         isAimThroughWall = [defaults boolForKey:@"huy_aim_wall"];
         aimbotFovRadius = [defaults floatForKey:@"huy_aim_fov_radius"] ?: 120.0f;
         showFovCircle = [defaults boolForKey:@"huy_show_fov_circle"];
-        
         isEspActive = [defaults boolForKey:@"huy_esp_active"];
         isEspLines = [defaults boolForKey:@"huy_esp_lines"];
         isEspBoxes = [defaults boolForKey:@"huy_esp_boxes"];
         isEspSkeleton = [defaults boolForKey:@"huy_esp_skeleton"];
         espMaxDistance = [defaults floatForKey:@"huy_esp_max_distance"] ?: 250.0f;
         espColorIndex = [defaults integerForKey:@"huy_esp_color_idx"];
-        
         isGodMode = [defaults boolForKey:@"huy_god_mode"];
         isHighSpeed = [defaults boolForKey:@"huy_high_speed"];
         cameraFov = [defaults floatForKey:@"huy_camera_fov"] ?: 60.0f;
-        
         menuStyleCorner = [defaults integerForKey:@"huy_menu_corner"];
         accentColorIndex = [defaults integerForKey:@"huy_accent_color_idx"];
         isVietnamese = [defaults objectForKey:@"huy_lang_viet"] ? [defaults boolForKey:@"huy_lang_viet"] : YES;
     } else {
-        // Mặc định luôn tắt hack khi vừa vào game để an toàn
         isAimbotActive = NO;
         isEspActive = NO;
         isGodMode = NO;
@@ -224,27 +316,23 @@ static void saveAllModSettingsToDevice() {
     [defaults setBool:isAimThroughWall forKey:@"huy_aim_wall"];
     [defaults setFloat:aimbotFovRadius forKey:@"huy_aim_fov_radius"];
     [defaults setBool:showFovCircle forKey:@"huy_show_fov_circle"];
-    
     [defaults setBool:isEspActive forKey:@"huy_esp_active"];
     [defaults setBool:isEspLines forKey:@"huy_esp_lines"];
     [defaults setBool:isEspBoxes forKey:@"huy_esp_boxes"];
     [defaults setBool:isEspSkeleton forKey:@"huy_esp_skeleton"];
     [defaults setFloat:espMaxDistance forKey:@"huy_esp_max_distance"];
     [defaults setInteger:espColorIndex forKey:@"huy_esp_color_idx"];
-    
     [defaults setBool:isGodMode forKey:@"huy_god_mode"];
     [defaults setBool:isHighSpeed forKey:@"huy_high_speed"];
     [defaults setFloat:cameraFov forKey:@"huy_camera_fov"];
-    
     [defaults setInteger:menuStyleCorner forKey:@"huy_menu_corner"];
     [defaults setInteger:accentColorIndex forKey:@"huy_accent_color_idx"];
     [defaults setBool:isVietnamese forKey:@"huy_lang_viet"];
-    
     [defaults synchronize];
 }
 
 // =====================================================================
-// LỚP CỬA SỔ TRONG SUỐT TOUCH PASSTHROUGH (ĐÈ LÊN 100% WEBVIEW/GAME)
+// LỚP CỬA SỔ TRONG SUỐT
 // =====================================================================
 @interface HuyPassthroughWindow : UIWindow
 @end
@@ -265,7 +353,7 @@ static void saveAllModSettingsToDevice() {
 @end
 
 // =====================================================================
-// HOOK HÀM PHÁT SỰ KIỆN GỐC - CHỐNG TRÌNH DUYỆT WEB NUỐT CỬ CHỈ GÕ 3 NGÓN
+// HOOK UIWindow SEND EVENT
 // =====================================================================
 static void (*orig_UIWindow_sendEvent)(id, SEL, UIEvent *);
 
@@ -290,7 +378,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 }
 
 // =====================================================================
-// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH (VIEW CONTROLLER)
+// LỚP ĐIỀU KHIỂN GIAO DIỆN
 // =====================================================================
 @implementation HuyMenuController
 
@@ -305,17 +393,14 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
     menuContainer.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.96];
     menuContainer.layer.borderWidth = 1.5;
     menuContainer.layer.borderColor = menuAccentColor.CGColor;
-    menuContainer.hidden = YES; // Mặc định ẩn, giữ Window chạy FOV liên tục
+    menuContainer.hidden = YES;
     [self updateMenuContainerStyle];
     [self.view addSubview:menuContainer];
     
-    // Kéo thả di chuyển Menu
     UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
     [menuContainer addGestureRecognizer:panDrag];
     
-    // -----------------------------------------------------------------
-    // GIAO DIỆN NHẬP KEY (AUTH PANEL)
-    // -----------------------------------------------------------------
+    // ========== AUTH PANEL ==========
     authPanel = [[UIView alloc] initWithFrame:menuContainer.bounds];
     authPanel.backgroundColor = [UIColor clearColor];
     [menuContainer addSubview:authPanel];
@@ -374,9 +459,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
     [closeAuthBtn addTarget:self action:@selector(closeMenuWithAnimation) forControlEvents:UIControlEventTouchUpInside];
     [authPanel addSubview:closeAuthBtn];
     
-    // -----------------------------------------------------------------
-    // PANEL MENU MOD CHÍNH
-    // -----------------------------------------------------------------
+    // ========== MAIN MOD PANEL ==========
     mainModPanel = [[UIView alloc] initWithFrame:menuContainer.bounds];
     mainModPanel.backgroundColor = [UIColor clearColor];
     mainModPanel.hidden = YES;
@@ -412,6 +495,12 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
     [self.contentArea addSubview:self.scrollView];
     
     [self buildSidebarTabs];
+    
+    NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"huy_saved_activation_key"];
+    if (savedKey && savedKey.length > 0) {
+        keyInputField.text = savedKey;
+        [self verifyLicenseKeyOnFirebase];
+    }
 }
 
 - (void)viewWillLayoutSubviews {
@@ -463,11 +552,11 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 
 - (void)updateThemeColors {
     if (accentColorIndex == 0) {
-        menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0]; // Cam
+        menuAccentColor = [UIColor colorWithRed:1.0 green:0.32 blue:0.18 alpha:1.0];
     } else if (accentColorIndex == 1) {
-        menuAccentColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.3 alpha:1.0]; // Xanh lá
+        menuAccentColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.3 alpha:1.0];
     } else {
-        menuAccentColor = [UIColor colorWithRed:0.0 green:0.47 blue:1.0 alpha:1.0]; // Xanh dương
+        menuAccentColor = [UIColor colorWithRed:0.0 green:0.47 blue:1.0 alpha:1.0];
     }
     
     if (espColorIndex == 0) {
@@ -595,7 +684,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
             
             authPanel.hidden = YES;
             mainModPanel.hidden = NO;
-            menuContainer.hidden = NO; 
+            menuContainer.hidden = NO;
             [self renderActiveTabScreen:0];
             
             [self startExpirationTimer];
@@ -742,7 +831,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         y += 75;
         
     } else if (idx == 1) {
-        // TAB 1: ESP HIỂN THỊ
+        // TAB 1: ESP
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"XUYÊN TƯỜNG ĐỊNH VỊ (ESP)" : @"WALL ESP CONFIGURATION"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -801,13 +890,14 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         y += 75;
         
     } else if (idx == 2) {
-        // TAB 2: FEATURES
+        // TAB 2: CHỨC NĂNG
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"TINH CHỈNH NHÂN VẬT & GAME" : @"CHARACTER & GAMEPLAY MOD"];
         [self.scrollView addSubview:secHeader];
         y += 35;
         
         UIView *godSw = [self buildSwitchRow:isVietnamese ? @"Bất tử (God Mode)" : @"God Mode (Infinite Health)" state:isGodMode action:^(BOOL isOn) {
             isGodMode = isOn;
+            updateGodModeHack();
         }];
         godSw.frame = CGRectMake(0, y, 410, 45);
         [self.scrollView addSubview:godSw];
@@ -815,6 +905,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         
         UIView *spdSw = [self buildSwitchRow:isVietnamese ? @"Chạy siêu nhanh" : @"Super Sprint Speed" state:isHighSpeed action:^(BOOL isOn) {
             isHighSpeed = isOn;
+            updateGameSpeedHack();
         }];
         spdSw.frame = CGRectMake(0, y, 410, 45);
         [self.scrollView addSubview:spdSw];
@@ -930,7 +1021,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         y += 50;
         
     } else if (idx == 3) {
-        // TAB 3: ACCOUNT & SAVE SETTINGS
+        // TAB 3: TÀI KHOẢN
         UILabel *secHeader = [self buildSectionHeader:isVietnamese ? @"QUẢN LÝ BẢN QUYỀN KEY" : @"ACTIVE VIP CONTRACT"];
         [self.scrollView addSubview:secHeader];
         y += 35;
@@ -972,7 +1063,6 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         
         [self updateCountdownRealtime];
         
-        // 💾 NÚT LƯU CONFIG PHÁT SÁNG THEO YÊU CẦU CỦA SẾP HUY
         UIButton *saveSettingsBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         saveSettingsBtn.frame = CGRectMake(10, y, 380, 45);
         saveSettingsBtn.backgroundColor = menuAccentColor;
@@ -1003,7 +1093,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 
 - (void)saveSettingsAction {
     saveAllModSettingsToDevice();
-    [self showToast:isVietnamese ? @"Đã lưu cấu hình thành công!" : @"All configurations successfully saved!"];
+    [self showToast:isVietnamese ? @"Đã lưu thiết lập thành công!" : @"All configurations successfully saved!"];
 }
 
 - (void)unlinkKeyAction {
@@ -1022,7 +1112,34 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 }
 
 - (void)killGrannyCommand {
-    [self showToast:isVietnamese ? @"💀 ĐÃ GỬI LỆNH VÔ HIỆU HÓA BÀ NGOẠI!" : @"💀 GRANNY SHUTDOWN SUCCESS!"];
+    Class grannyClass = objc_getClass("GrannyAI");
+    if (!grannyClass) grannyClass = objc_getClass("EnemyAI");
+    if (!grannyClass) grannyClass = objc_getClass("AIController");
+    
+    if (grannyClass) {
+        id unityEngine = NSClassFromString(@"UnityEngine");
+        if (unityEngine) {
+            SEL findSel = NSSelectorFromString(@"FindObjectsOfType:");
+            if ([unityEngine respondsToSelector:findSel]) {
+                NSArray *grannies = [unityEngine performSelector:findSel withObject:grannyClass];
+                if (grannies && grannies.count > 0) {
+                    for (id granny in grannies) {
+                        if ([granny respondsToSelector:NSSelectorFromString(@"Die")]) {
+                            [granny performSelector:NSSelectorFromString(@"Die")];
+                        }
+                        if ([granny respondsToSelector:NSSelectorFromString(@"setHealth:")]) {
+                            [granny performSelector:NSSelectorFromString(@"setHealth:") withObject:@0];
+                        }
+                    }
+                    [self showToast:isVietnamese ? @"💀 Đã tiêu diệt bà ngoại!" : @"💀 Granny eliminated!"];
+                    return;
+                }
+            }
+        }
+        [self showToast:isVietnamese ? @"❌ Không tìm thấy bà ngoại!" : @"❌ Granny not found!"];
+    } else {
+        [self showToast:isVietnamese ? @"❌ Chưa tìm thấy class Granny!" : @"❌ Granny class not found!"];
+    }
 }
 
 - (void)showItemSelectionMenu:(UIButton *)sender {
@@ -1046,7 +1163,52 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 }
 
 - (void)executeSpawnAction {
-    [self showToast:[NSString stringWithFormat:isVietnamese ? @"Đã triệu hồi [%@] trước mặt sếp Huy!" : @"[%@] spawned in front of your vision!", selectedItemToSpawn]];
+    Class itemClass = objc_getClass("Item");
+    if (!itemClass) itemClass = objc_getClass("PickupItem");
+    
+    if (itemClass) {
+        id unityEngine = NSClassFromString(@"UnityEngine");
+        if (unityEngine) {
+            SEL findSel = NSSelectorFromString(@"FindObjectsOfType:");
+            if ([unityEngine respondsToSelector:findSel]) {
+                NSArray *items = [unityEngine performSelector:findSel withObject:itemClass];
+                for (id item in items) {
+                    NSString *itemName = [item valueForKey:@"name"];
+                    if ([itemName containsString:selectedItemToSpawn]) {
+                        Class playerClass = objc_getClass("PlayerController");
+                        if (!playerClass) playerClass = objc_getClass("Player");
+                        if (playerClass) {
+                            NSArray *players = [unityEngine performSelector:findSel withObject:playerClass];
+                            if (players && players.count > 0) {
+                                id player = players[0];
+                                SEL transformSel = NSSelectorFromString(@"get_transform");
+                                id playerTransform = [player performSelector:transformSel];
+                                if (playerTransform) {
+                                    SEL posSel = NSSelectorFromString(@"get_position");
+                                    id playerPos = [playerTransform performSelector:posSel];
+                                    if (playerPos) {
+                                        id itemTransform = [item performSelector:transformSel];
+                                        if (itemTransform) {
+                                            SEL setPosSel = NSSelectorFromString(@"set_position:");
+                                            if ([itemTransform respondsToSelector:setPosSel]) {
+                                                [itemTransform performSelector:setPosSel withObject:playerPos];
+                                                [self showToast:[NSString stringWithFormat:isVietnamese ? @"✅ Đã triệu hồi [%@]!" : @"✅ [%@] spawned!", selectedItemToSpawn]];
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        [self showToast:[NSString stringWithFormat:isVietnamese ? @"📦 Đã triệu hồi [%@]!" : @"📦 [%@] spawned!", selectedItemToSpawn]];
+    } else {
+        [self showToast:isVietnamese ? @"⚠️ Không tìm thấy class Item!" : @"⚠️ Item class not found!"];
+    }
 }
 
 - (void)posSegChanged:(UISegmentedControl *)sender {
@@ -1106,7 +1268,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
     sw.on = isOn;
     
     objc_setAssociatedObject(sw, "callback", callback, OBJC_ASSOCIATION_COPY_NONATOMIC);
-    [sw addTarget:self action:@selector(switchTriggered:) forControlEvents:UIControlEventTouchUpInside];
+    [sw addTarget:self action:@selector(switchTriggered:) forControlEvents:UIControlEventValueChanged];
     [view addSubview:sw];
     
     return view;
@@ -1192,7 +1354,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 @end
 
 // =====================================================================
-// KHỞI CHẠY GIAO DIỆN & TẠO LOGO WHITE HAT 🕵️‍♂️ KÉO THẢ DI ĐỘNG CHẤT LỪ
+// KHỞI CHẠY GIAO DIỆN & LOGO 🕵️‍♂️
 // =====================================================================
 @interface HuyMenuInitializer : NSObject
 + (void)tryInitializeUI;
@@ -1214,7 +1376,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
             }
         }
         
-        // 1. TẠO CỬ SỔ CHỨA LOGO WHITE HAT 🕵️‍♂️ KHÔNG BỊ TRÌNH DUYỆT WEB NUỐT
+        // CỬA SỔ NỔI LOGO 🕵️‍♂️
         if (@available(iOS 13.0, *)) {
             floatingButtonWindow = [[UIWindow alloc] initWithWindowScene:scene];
         } else {
@@ -1222,7 +1384,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         }
         floatingButtonWindow.frame = CGRectMake(20, 180, 56, 56);
         floatingButtonWindow.backgroundColor = [UIColor clearColor];
-        floatingButtonWindow.windowLevel = UIWindowLevelAlert + 1001; 
+        floatingButtonWindow.windowLevel = UIWindowLevelAlert + 1001;
         
         UIViewController *btnRootVC = [[UIViewController alloc] init];
         btnRootVC.view.backgroundColor = [UIColor clearColor];
@@ -1234,13 +1396,11 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         floatingLogoBtn.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.9];
         floatingLogoBtn.layer.cornerRadius = 28;
         floatingLogoBtn.layer.borderWidth = 1.5;
-        floatingLogoBtn.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor; 
+        floatingLogoBtn.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor;
         
-        // Set Logo "White Hat" cực kỳ uy tín cho sếp Huy!
         [floatingLogoBtn setTitle:@"🕵️‍♂️" forState:UIControlStateNormal];
         floatingLogoBtn.titleLabel.font = [UIFont systemFontOfSize:28];
         
-        // Đổ bóng phát sáng Neon xanh nước biển
         floatingLogoBtn.layer.shadowColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor;
         floatingLogoBtn.layer.shadowOffset = CGSizeZero;
         floatingLogoBtn.layer.shadowRadius = 8;
@@ -1253,7 +1413,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         [btnRootVC.view addSubview:floatingLogoBtn];
         floatingButtonWindow.hidden = NO;
 
-        // 2. TẠO CỬ SỔ TRONG SUỐT TOUCH PASSTHROUGH LUÔN LUÔN HOẠT ĐỘNG ĐỂ VẼ HACK NGẦM
+        // CỬA SỔ MENU TRONG SUỐT
         if (@available(iOS 13.0, *)) {
             overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithWindowScene:scene];
         } else {
@@ -1265,7 +1425,7 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
         
         HuyMenuController *controller = [[HuyMenuController alloc] init];
         overlayMenuWindow.rootViewController = controller;
-        overlayMenuWindow.hidden = NO; // Luôn luôn hoạt động ngầm để vẽ FOV/ESP!
+        overlayMenuWindow.hidden = NO;
     });
 }
 
@@ -1284,15 +1444,22 @@ static void custom_UIWindow_sendEvent(UIWindow *self, SEL _cmd, UIEvent *event) 
 
 @end
 
-// Khởi chạy dylib khi load vào game
+// =====================================================================
+// HÀM KHỞI CHẠY CHÍNH
+// =====================================================================
 __attribute__((constructor)) static void initialize() {
     loadSavedModSettings();
-    setupRealGameEngineHooks(); // Kích hoạt bộ Hook động mã máy vào game!
     
-    // Khởi tạo bộ Hook phát sự kiện gõ 3 ngón tay x 2 lần
+    // ====== TỰ ĐỘNG TÌM OFFSET ======
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        autoFindAllOffsets();
+    });
+    
     Method originalMethod = class_getInstanceMethod([UIWindow class], @selector(sendEvent:));
-    orig_UIWindow_sendEvent = (void *)method_getImplementation(originalMethod);
-    method_setImplementation(originalMethod, (IMP)custom_UIWindow_sendEvent);
+    if (originalMethod) {
+        orig_UIWindow_sendEvent = (void *)method_getImplementation(originalMethod);
+        method_setImplementation(originalMethod, (IMP)custom_UIWindow_sendEvent);
+    }
     
     if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
         [HuyMenuInitializer tryInitializeUI];
@@ -1305,4 +1472,3 @@ __attribute__((constructor)) static void initialize() {
         }];
     }
 }
-
