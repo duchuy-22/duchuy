@@ -6,7 +6,7 @@
 #import <mach/mach.h>
 
 // =====================================================================
-// ĐỊNH NGHĨA CỨNG ĐỂ TRÁNH LỖI PHÂN GIẢI TRÊN MÁY ẢO GITHUB
+// ĐỊNH NGHĨA CỨNG CÁC ĐỊNH DANH ĐỂ TRÁNH LỖI PHÂN GIẢI TRÊN MÁY ẢO GITHUB
 // =====================================================================
 #ifndef UIControlStateNormal
 #define UIControlStateNormal 0
@@ -19,15 +19,6 @@
 #endif
 
 // =====================================================================
-// KHU VỰC ĐIỀN OFFSET GAME THỰC TẾ
-// =====================================================================
-static uintptr_t const OFFSET_PLAYER_SPEED = 0x0; 
-static uintptr_t const OFFSET_GOD_MODE     = 0x0; 
-static uintptr_t const OFFSET_CAMERA_FOV   = 0x0; 
-
-static const char *const TARGET_FRAMEWORK_NAME = "UnityFramework";
-
-// =====================================================================
 // BIẾN TRẠNG THÁI TOÀN CỤC CHẠY NGẦM LIÊN TỤC
 // =====================================================================
 static BOOL isAimbotActive = NO;
@@ -38,39 +29,47 @@ static float cameraFov = 60.0f;
 static BOOL isGodMode = NO;
 static BOOL isHighSpeed = NO;
 
-// Đối tượng UI hệ thống
+// Đối tượng cửa sổ bảo vệ
 static UIWindow *floatingButtonWindow = nil; 
 static UIWindow *overlayMenuWindow = nil;    
+static UIView *menuContainer = nil;
 static WKWebView *menuWebView = nil;
 static CAShapeLayer *fovCircleLayer = nil;
 static UIButton *floatingLogoBtn = nil;
 
+// Forward Declarations
+@interface HuyMenuController : UIViewController <WKNavigationDelegate>
++ (void)drawFovCircleOnScreen;
++ (void)openMenuWithAnimation;
++ (void)toggleMenuGlobal;
+@end
+
 // =====================================================================
-// CHỨC NĂNG HUỶ DIỆT TOÀN BỘ DỮ LIỆU & EXIT APP SẠCH SẼ
+// CHỨC NĂNG HUỶ DIỆT TOÀN BỘ DỮ LIỆU & ĐÓNG APP SẠCH SẼ
 // =====================================================================
 static void wipeAllDataAndExitApp() {
-    // 1. Quét sạch phân vùng bộ nhớ cài đặt (NSUserDefaults)
+    // 1. Quét sạch phân vùng bộ nhớ cài đặt lưu tạm (NSUserDefaults)
     NSString *appDomain = [[NSBundle mainBundle] bundleIdentifier];
     [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:appDomain];
     [[NSUserDefaults standardUserDefaults] synchronize];
     
-    // 2. Xoá Keychain hoặc tệp lưu trữ tạm thời nếu có
+    // 2. Xoá Keychain và tệp lưu trữ tạm thời trong thư mục ứng dụng
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
     if (paths.count > 0) {
         NSString *cachePath = paths[0];
         [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
     }
     
-    // 3. Giải phóng bộ nhớ UI dylib
+    // 3. Giải phóng hoàn toàn bộ nhớ đồ họa dylib
     [overlayMenuWindow setHidden:YES];
     [floatingButtonWindow setHidden:YES];
     
-    // 4. Force Exit - Văng khỏi app lập tức một cách an toàn
+    // 4. Gọi lệnh hệ thống tắt ứng dụng lập tức (Văng app an toàn)
     exit(0);
 }
 
 // =====================================================================
-// GIAO DIỆN WEB HTML CAO CẤP ĐƯỢC NHÚNG TRỰC TIẾP VÀO DYLIB
+// GIAO DIỆN WEB HTML CAO CẤP TỰ CHỨA - KHÔNG CẦN FILE MAIN.HTML NGOÀI
 // =====================================================================
 static NSString* getMenuHTMLContent() {
     return @""
@@ -85,29 +84,27 @@ static NSString* getMenuHTMLContent() {
     "      margin: 0; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
     "      background: rgba(10, 12, 18, 0.95); color: #fff; border-radius: 20px;"
     "      border: 2px solid #00f0ff; box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);"
-    "      height: 100vh; overflow-y: auto;"
+    "      height: 100vh; overflow: hidden;"
     "    }"
     "    .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid rgba(0,240,255,0.2); padding-bottom: 10px; }"
-    "    .header h1 { margin: 0; font-size: 20px; color: #00f0ff; text-shadow: 0 0 10px rgba(0,240,255,0.5); }"
-    "    .header p { margin: 5px 0 0 0; font-size: 11px; color: #8a99ad; }"
-    "    .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: rgba(255,255,255,0.03); padding: 10px 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }"
-    "    .row span { font-size: 14px; font-weight: 500; }"
+    "    .header h1 { margin: 0; font-size: 18px; color: #00f0ff; text-shadow: 0 0 10px rgba(0, 240, 255, 0.5); }"
+    "    .header p { margin: 5px 0 0 0; font-size: 10px; color: #8a99ad; }"
+    "    .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }"
+    "    .row span { font-size: 13px; font-weight: 500; }"
     "    /* Custom Switch style */"
-    "    .switch { position: relative; display: inline-block; width: 46px; height: 24px; }"
+    "    .switch { position: relative; display: inline-block; width: 44px; height: 22px; }"
     "    .switch input { opacity: 0; width: 0; height: 0; }"
-    "    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2a2f3d; border-radius: 24px; transition: .3s; border: 1px solid rgba(255,255,255,0.1); }"
-    "    .slider:before { position: absolute; content: ''; height: 18px; width: 18px; left: 2px; bottom: 2px; background-color: #fff; border-radius: 50%; transition: .3s; }"
+    "    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2a2f3d; border-radius: 22px; transition: .3s; border: 1px solid rgba(255,255,255,0.1); }"
+    "    .slider:before { position: absolute; content: ''; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: #fff; border-radius: 50%; transition: .3s; }"
     "    input:checked + .slider { background-color: #00f0ff; box-shadow: 0 0 10px rgba(0,240,255,0.4); }"
     "    input:checked + .slider:before { transform: translateX(22px); }"
     "    /* Slider FOV style */"
-    "    .slider-container { display: flex; flex-direction: column; width: 100%; gap: 10px; background: rgba(255,255,255,0.03); padding: 10px 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px; }"
-    "    .slider-title { display: flex; justify-content: space-between; font-size: 13px; color: #8a99ad; }"
-    "    .range-input { -webkit-appearance: none; width: 100%; height: 6px; background: #2a2f3d; border-radius: 3px; outline: none; }"
-    "    .range-input::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 18px; background: #00f0ff; border-radius: 3px; cursor: pointer; box-shadow: 0 0 8px #00f0ff; }"
+    "    .slider-container { display: flex; flex-direction: column; width: 100%; gap: 8px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px; }"
+    "    .slider-title { display: flex; justify-content: space-between; font-size: 12px; color: #8a99ad; }"
+    "    .range-input { -webkit-appearance: none; width: 100%; height: 5px; background: #2a2f3d; border-radius: 3px; outline: none; }"
+    "    .range-input::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 16px; background: #00f0ff; border-radius: 3px; cursor: pointer; box-shadow: 0 0 8px #00f0ff; }"
     "    /* Action Buttons */"
-    "    .btn-save { width: 100%; background: linear-gradient(135deg, #00f0ff, #0072ff); border: none; color: #fff; padding: 12px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; box-shadow: 0 4px 15px rgba(0,240,255,0.2); transition: 0.2s; }"
-    "    .btn-save:active { transform: scale(0.98); }"
-    "    .btn-wipe { width: 100%; background: linear-gradient(135deg, #ff0055, #990022); border: none; color: #fff; padding: 12px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 15px; box-shadow: 0 4px 15px rgba(255,0,85,0.2); transition: 0.2s; }"
+    "    .btn-wipe { width: 100%; background: linear-gradient(135deg, #ff0055, #990022); border: none; color: #fff; padding: 12px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; box-shadow: 0 4px 15px rgba(255,0,85,0.2); transition: 0.2s; font-size: 12px; }"
     "    .btn-wipe:active { transform: scale(0.98); }"
     "  </style>"
     "</head>"
@@ -157,7 +154,6 @@ static NSString* getMenuHTMLContent() {
     "    <input type='range' min='30' max='300' value='120' class='range-input' id='fovRange' oninput='sliderAction(\"setFov\", this.value)'>"
     "  </div>"
     "  "
-    "  <button class='btn-save' onclick='sendNativeAction(\"saveSettings\")'>💾 LƯU CẤU HÌNH MOD</button>"
     "  <button class='btn-wipe' onclick='sendNativeAction(\"wipeAndExit\")'>💥 ĐÓNG APP & XOÁ SẠCH DỮ LIỆU</button>"
     "  "
     "  <script>"
@@ -171,7 +167,6 @@ static NSString* getMenuHTMLContent() {
     "      document.getElementById('fovVal').innerText = value + 'px';"
     "      window.webkit.messageHandlers.HuyBridge.postMessage({ 'action': action, 'value': parseFloat(value) });"
     "    }"
-    "    // Đọc trạng thái đồng bộ ngược từ Native dylib lên Web"
     "    window.onload = function() {"
     "      window.webkit.messageHandlers.HuyBridge.postMessage({ 'action': 'requestSync' });"
     "    };"
@@ -189,68 +184,14 @@ static NSString* getMenuHTMLContent() {
 }
 
 // =====================================================================
-// BỘ DÒ BASE ADDRESS & ENGINE HOOK THỰC TẾ
-// =====================================================================
-static uintptr_t get_Framework_Base_Address() {
-    uint32_t imageCount = _dyld_image_count();
-    for (uint32_t i = 0; i < imageCount; i++) {
-        const char *name = _dyld_get_image_name(i);
-        if (name && strstr(name, TARGET_FRAMEWORK_NAME) != NULL) {
-            return (uintptr_t)_dyld_get_image_vmaddr_slide(i);
-        }
-    }
-    return (uintptr_t)_dyld_get_image_vmaddr_slide(0); 
-}
-
-static void patchMemory(uintptr_t address, const void *bytes, size_t size) {
-    if (address == 0 || address < 0x100000) return; 
-    
-    mach_port_t task = mach_task_self();
-    kern_return_t err;
-    
-    err = vm_protect(task, (vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
-    if (err == KERN_SUCCESS) {
-        memcpy((void *)address, bytes, size);
-        vm_protect(task, (vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
-    }
-}
-
-static void updateGameSpeedHack() {
-    uintptr_t base = get_Framework_Base_Address();
-    if (base == 0 || OFFSET_PLAYER_SPEED <= 0x1000) return; 
-    
-    uintptr_t speedAddress = base + OFFSET_PLAYER_SPEED;
-    if (isHighSpeed) {
-        uint32_t patchBytes[] = {0x528003c0, 0xD65F03C0}; 
-        patchMemory(speedAddress, patchBytes, sizeof(patchBytes));
-    } else {
-        uint32_t originalBytes[] = {0xaa0003e0, 0xd65f03c0}; 
-        patchMemory(speedAddress, originalBytes, sizeof(originalBytes));
-    }
-}
-
-static void updateGodModeHack() {
-    uintptr_t base = get_Framework_Base_Address();
-    if (base == 0 || OFFSET_GOD_MODE <= 0x1000) return; 
-    
-    uintptr_t damageAddress = base + OFFSET_GOD_MODE;
-    if (isGodMode) {
-        uint32_t patchBytes[] = {0xD65F03C0}; 
-        patchMemory(damageAddress, patchBytes, sizeof(patchBytes));
-    } else {
-        uint32_t originalBytes[] = {0xfd7b01a0}; 
-        patchMemory(damageAddress, originalBytes, sizeof(originalBytes));
-    }
-}
-
-// =====================================================================
-// LỚP CỬA SỔ TRONG SUỐT TOUCH PASSTHROUGH CHẠY NGẦM VẼ FOV
+// LỚP CỬA SỔ TRONG SUỐT CHẠM XUYÊN THẤU (TOUCH PASSTHROUGH)
 // =====================================================================
 @interface HuyPassthroughWindow : UIWindow
 @end
 
 @implementation HuyPassthroughWindow
 
+// Chạm xuyên thấu: Chỉ nhận sự kiện chạm nếu bấm trúng vùng điều khiển menu
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hitView = [super hitTest:point withEvent:event];
     if (menuContainer && !menuContainer.hidden && menuContainer.alpha > 0) {
@@ -285,19 +226,14 @@ static void updateGodModeHack() {
             isEspActive = [value boolValue];
         } else if ([action isEqualToString:@"setGodMode"]) {
             isGodMode = [value boolValue];
-            updateGodModeHack();
         } else if ([action isEqualToString:@"setHighSpeed"]) {
             isHighSpeed = [value boolValue];
-            updateGameSpeedHack();
         } else if ([action isEqualToString:@"setFov"]) {
             aimbotFovRadius = [value floatValue];
             [HuyMenuController drawFovCircleOnScreen];
-        } else if ([action isEqualToString:@"saveSettings"]) {
-            saveAllModSettingsToDevice();
         } else if ([action isEqualToString:@"wipeAndExit"]) {
             wipeAllDataAndExitApp();
         } else if ([action isEqualToString:@"requestSync"]) {
-            // Đồng bộ ngược dữ liệu lưu sẵn từ máy lên Web lúc vừa khởi chạy
             NSString *js = [NSString stringWithFormat:@"syncWebState(%d, %d, %d, %d, %f)", 
                             isAimbotActive, isEspActive, isGodMode, isHighSpeed, aimbotFovRadius];
             [menuWebView evaluateJavaScript:js completionHandler:nil];
@@ -310,19 +246,14 @@ static void updateGodModeHack() {
 // =====================================================================
 // LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH
 // =====================================================================
-@interface HuyMenuController : UIViewController <WKNavigationDelegate>
-@end
-
 @implementation HuyMenuController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
-    loadSavedModSettings();
-    
-    // Khung bo tròn viền chứa Menu Web
-    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 360, 480)];
+    // Khung viền bo tròn chứa Menu Web
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 350, 460)];
     menuContainer.backgroundColor = [UIColor clearColor];
     menuContainer.hidden = YES; 
     [self.view addSubview:menuContainer];
@@ -331,14 +262,14 @@ static void updateGodModeHack() {
     UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
     [menuContainer addGestureRecognizer:panDrag];
     
-    // Tạo cấu hình Bridge nhận sự kiện từ Web
+    // Thiết lập cầu nối sự kiện Web Bridge
     WKUserContentController *userContentController = [[WKUserContentController alloc] init];
     [userContentController addScriptMessageHandler:[[HuyWebBridgeHandler alloc] init] name:@"HuyBridge"];
     
     WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
     configuration.userContentController = userContentController;
     
-    // Tạo Trình duyệt nhúng WebView vào dylib
+    // Khởi tạo trình duyệt WebView tích hợp
     menuWebView = [[WKWebView alloc] initWithFrame:menuContainer.bounds configuration:configuration];
     menuWebView.navigationDelegate = self;
     menuWebView.backgroundColor = [UIColor clearColor];
@@ -348,7 +279,7 @@ static void updateGodModeHack() {
     menuWebView.layer.masksToBounds = YES;
     [menuContainer addSubview:menuWebView];
     
-    // Load HTML trực tiếp từ chuỗi tĩnh
+    // Load mã HTML trực tiếp từ bộ nhớ dylib
     [menuWebView loadHTMLString:getMenuHTMLContent() baseURL:nil];
 }
 
@@ -381,7 +312,6 @@ static void updateGodModeHack() {
         [HuyMenuController openMenuWithAnimation];
         [HuyMenuController drawFovCircleOnScreen];
         
-        // Đồng bộ ngược dữ liệu từ Native sang Web khi mở menu
         NSString *js = [NSString stringWithFormat:@"syncWebState(%d, %d, %d, %d, %f)", 
                         isAimbotActive, isEspActive, isGodMode, isHighSpeed, aimbotFovRadius];
         [menuWebView evaluateJavaScript:js completionHandler:nil];
@@ -410,7 +340,7 @@ static void updateGodModeHack() {
         fovCircleLayer = [CAShapeLayer layer];
         fovCircleLayer.path = path.CGPath;
         fovCircleLayer.fillColor = [UIColor clearColor].CGColor;
-        fovCircleLayer.strokeColor = [UIColor colorWithRed:0.0 green:0.94 blue:1.0 alpha:1.0].CGColor; // Cyan phát sáng
+        fovCircleLayer.strokeColor = [UIColor colorWithRed:0.0 green:0.94 blue:1.0 alpha:1.0].CGColor; 
         fovCircleLayer.lineWidth = 1.2f;
         fovCircleLayer.opacity = 0.7f;
         
@@ -465,7 +395,6 @@ static void updateGodModeHack() {
         floatingLogoBtn.layer.borderWidth = 1.5;
         floatingLogoBtn.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor; 
         
-        // Logo White Hat 🕵️‍♂️ (Hacker Mũ Trắng)
         [floatingLogoBtn setTitle:@"🕵️‍♂️" forState:UIControlStateNormal];
         floatingLogoBtn.titleLabel.font = [UIFont systemFontOfSize:28];
         
@@ -512,10 +441,8 @@ static void updateGodModeHack() {
 
 @end
 
-// Khởi chạy dylib khi load vào game
+// Khởi chạy dylib tự động khi được tải vào app
 __attribute__((constructor)) static void initialize() {
-    loadSavedModSettings();
-    
     if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
         [HuyMenuInitializer tryInitializeUI];
     } else {
