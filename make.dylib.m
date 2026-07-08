@@ -1,457 +1,603 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
-#import <dlfcn.h>
-#import <mach-o/dyld.h>
 #import <mach/mach.h>
+#import <dlfcn.h>
 
 // =====================================================================
-// ĐỊNH NGHĨA CỨNG CÁC ĐỊNH DANH ĐỂ TRÁNH LỖI PHÂN GIẢI TRÊN MÁY ẢO GITHUB
+// OFFSET FF - TỪ FILE C# + ẢNH CỦA MÀY
 // =====================================================================
-#ifndef UIControlStateNormal
-#define UIControlStateNormal 0
-#endif
-#ifndef UIControlStateSelected
-#define UIControlStateSelected 4
-#endif
-#ifndef UIControlEventTouchUpInside
-#define UIControlEventTouchUpInside (1 << 6)
-#endif
+#define OFFSET_MAINPLAYER          0x10F4F4
+#define OFFSET_ENEMYPLAYER         0x10F4F8
+#define OFFSET_HEALTH              0xF8
+#define OFFSET_ARMOR               0xFC
+#define OFFSET_POS_X               0x34
+#define OFFSET_POS_Y               0x38
+#define OFFSET_POS_Z               0x3C
+#define OFFSET_MOUSE_X             0x40
+#define OFFSET_MOUSE_Y             0x44
+#define OFFSET_GOD_MODE            0x29D1F
+#define OFFSET_IS_VISIBLE          0x11b1254
+#define OFFSET_GET_HP              0x1207cbc
+#define OFFSET_GET_MAX_HP          0x1207dfc
+#define OFFSET_GET_NAME            0x11a18e0
+#define OFFSET_IS_MOVING           0x11a13c
+#define OFFSET_IS_FIRING           0x11a1844
+#define OFFSET_IS_TEAMMATE         0x11bfe4
+#define OFFSET_IS_DEAD             0x11a11e8
+#define OFFSET_GET_POSITION        0x61b5e1c
+#define OFFSET_GET_TRANSFORM       0x510212c
+#define OFFSET_GET_ROTATION        0x61b6124
+#define OFFSET_GET_AIM_ROTATION    0x11a1d82
+#define OFFSET_GET_ATTACK_CENTER   0x11a1f7c
+#define OFFSET_GET_HEAD_TF         0x12a0990
+#define OFFSET_GET_SPEED_SCALE     0x17f7314
+#define OFFSET_FAST_MEDKIT         0x17a104
+#define OFFSET_SCREEN_WIDTH        0x5e43f6e
+#define OFFSET_SCREEN_HEIGHT       0x5e43f6e
+#define OFFSET_GET_ACTIVE_WEAPON   0x11b6f98
+#define OFFSET_GHOST_HACK          0x2262f18
+#define OFFSET_BYPASS              0x3ab11ec
 
 // =====================================================================
-// BIẾN TRẠNG THÁI TOÀN CỤC CHẠY NGẦM LIÊN TỤC
+// FIREBASE KEY SERVER
 // =====================================================================
-static BOOL isAimbotActive = NO;
-static BOOL isEspActive = NO;
-static float aimbotFovRadius = 120.0f;
-static BOOL showFovCircle = YES;
-static float cameraFov = 60.0f;
+static NSString *const FIREBASE_DB_URL = @"https://duchuy-99a4f-default-rtdb.firebaseio.com";
+static NSString *const APP_ID = @"ff_v1";
+
+// =====================================================================
+// BIẾN TOÀN CỤC
+// =====================================================================
+static BOOL isKeyValidated = NO;
+static BOOL isEspEnabled = YES;
+static BOOL isBoxEnabled = YES;
+static BOOL isLineEnabled = YES;
+static BOOL isSkeletonEnabled = YES;
+static BOOL isNameEnabled = YES;
+static BOOL isHealthEnabled = YES;
+static BOOL isAimbotEnabled = NO;
+static BOOL isFovCircleEnabled = YES;
+static BOOL isAlwaysAim = NO;
+static BOOL isAimThroughWall = NO;
+static int aimTarget = 2; // 0:Head, 1:Neck, 2:Chest, 3:Body
+static float fovSize = 150.0f;
+static BOOL isGhostEnabled = NO;
+static BOOL isBypassEnabled = NO;
 static BOOL isGodMode = NO;
-static BOOL isHighSpeed = NO;
+static BOOL isSpeedHack = NO;
 
-// Đối tượng cửa sổ bảo vệ
-static UIWindow *floatingButtonWindow = nil; 
-static UIWindow *overlayMenuWindow = nil;    
-static UIView *menuContainer = nil;
-static WKWebView *menuWebView = nil;
-static CAShapeLayer *fovCircleLayer = nil;
-static UIButton *floatingLogoBtn = nil;
-
-// Forward Declarations
-@interface HuyMenuController : UIViewController <WKNavigationDelegate>
-+ (void)drawFovCircleOnScreen;
-+ (void)openMenuWithAnimation;
-+ (void)toggleMenuGlobal;
-@end
+static UIWindow *overlayWindow = nil;
 
 // =====================================================================
-// CHỨC NĂNG HUỶ DIỆT TOÀN BỘ DỮ LIỆU & ĐÓNG APP SẠCH SẼ
+// STRUCT
 // =====================================================================
-static void wipeAllDataAndExitApp() {
-    // 1. Quét sạch phân vùng bộ nhớ cài đặt lưu tạm (NSUserDefaults)
-    NSString *appDomain = [[NSBundle mainBundle] bundleIdentifier];
-    [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:appDomain];
-    [[NSUserDefaults standardUserDefaults] synchronize];
-    
-    // 2. Xoá Keychain và tệp lưu trữ tạm thời trong thư mục ứng dụng
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    if (paths.count > 0) {
-        NSString *cachePath = paths[0];
-        [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
-    }
-    
-    // 3. Giải phóng hoàn toàn bộ nhớ đồ họa dylib
-    [overlayMenuWindow setHidden:YES];
-    [floatingButtonWindow setHidden:YES];
-    
-    // 4. Gọi lệnh hệ thống tắt ứng dụng lập tức (Văng app an toàn)
-    exit(0);
+typedef struct {
+    int health;
+    int armor;
+    float x, y, z;
+    float mouseX, mouseY;
+    char name[64];
+    bool isVisible;
+    bool isDead;
+    bool isTeammate;
+} PlayerInfo;
+
+// =====================================================================
+// HÀM ĐỌC/GHI MEMORY (ĐÃ CÓ QUYỀN VÌ NẰM TRONG PROCESS)
+// =====================================================================
+static uintptr_t getFFBaseAddress(void) {
+    // Lấy base address của FF (đã có sẵn trong process)
+    return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
+}
+
+static float readFloatFF(uintptr_t address) {
+    if (address == 0) return 0;
+    float *ptr = (float *)address;
+    return *ptr;
+}
+
+static int readIntFF(uintptr_t address) {
+    if (address == 0) return 0;
+    int *ptr = (int *)address;
+    return *ptr;
+}
+
+static bool readBoolFF(uintptr_t address) {
+    if (address == 0) return false;
+    bool *ptr = (bool *)address;
+    return *ptr;
+}
+
+static void writeFloatFF(uintptr_t address, float value) {
+    if (address == 0) return;
+    float *ptr = (float *)address;
+    *ptr = value;
+}
+
+static void writeIntFF(uintptr_t address, int value) {
+    if (address == 0) return;
+    int *ptr = (int *)address;
+    *ptr = value;
+}
+
+static void writeBoolFF(uintptr_t address, bool value) {
+    if (address == 0) return;
+    bool *ptr = (bool *)address;
+    *ptr = value;
 }
 
 // =====================================================================
-// GIAO DIỆN WEB HTML CAO CẤP TỰ CHỨA - KHÔNG CẦN FILE MAIN.HTML NGOÀI
+// HÀM LẤY PLAYER INFO
 // =====================================================================
-static NSString* getMenuHTMLContent() {
-    return @""
-    "<!DOCTYPE html>"
-    "<html>"
-    "<head>"
-    "  <meta charset='UTF-8'>"
-    "  <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>"
-    "  <style>"
-    "    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }"
-    "    body {"
-    "      margin: 0; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
-    "      background: rgba(10, 12, 18, 0.95); color: #fff; border-radius: 20px;"
-    "      border: 2px solid #00f0ff; box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);"
-    "      height: 100vh; overflow: hidden;"
-    "    }"
-    "    .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid rgba(0,240,255,0.2); padding-bottom: 10px; }"
-    "    .header h1 { margin: 0; font-size: 18px; color: #00f0ff; text-shadow: 0 0 10px rgba(0, 240, 255, 0.5); }"
-    "    .header p { margin: 5px 0 0 0; font-size: 10px; color: #8a99ad; }"
-    "    .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }"
-    "    .row span { font-size: 13px; font-weight: 500; }"
-    "    /* Custom Switch style */"
-    "    .switch { position: relative; display: inline-block; width: 44px; height: 22px; }"
-    "    .switch input { opacity: 0; width: 0; height: 0; }"
-    "    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2a2f3d; border-radius: 22px; transition: .3s; border: 1px solid rgba(255,255,255,0.1); }"
-    "    .slider:before { position: absolute; content: ''; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: #fff; border-radius: 50%; transition: .3s; }"
-    "    input:checked + .slider { background-color: #00f0ff; box-shadow: 0 0 10px rgba(0,240,255,0.4); }"
-    "    input:checked + .slider:before { transform: translateX(22px); }"
-    "    /* Slider FOV style */"
-    "    .slider-container { display: flex; flex-direction: column; width: 100%; gap: 8px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px; }"
-    "    .slider-title { display: flex; justify-content: space-between; font-size: 12px; color: #8a99ad; }"
-    "    .range-input { -webkit-appearance: none; width: 100%; height: 5px; background: #2a2f3d; border-radius: 3px; outline: none; }"
-    "    .range-input::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 16px; background: #00f0ff; border-radius: 3px; cursor: pointer; box-shadow: 0 0 8px #00f0ff; }"
-    "    /* Action Buttons */"
-    "    .btn-wipe { width: 100%; background: linear-gradient(135deg, #ff0055, #990022); border: none; color: #fff; padding: 12px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; box-shadow: 0 4px 15px rgba(255,0,85,0.2); transition: 0.2s; font-size: 12px; }"
-    "    .btn-wipe:active { transform: scale(0.98); }"
-    "  </style>"
-    "</head>"
-    "<body>"
-    "  <div class='header'>"
-    "    <h1>WHITE HAT WEB MENU</h1>"
-    "    <p>Premium Real-time Web Tweak by Dong Duc Huy</p>"
-    "  </div>"
-    "  "
-    "  <div class='row'>"
-    "    <span>🎯 Khóa mục tiêu (Aimbot)</span>"
-    "    <label class='switch'>"
-    "      <input type='checkbox' id='aimbot' onchange='toggleAction(\"setAimbot\", this.checked)'>"
-    "      <span class='slider'></span>"
-    "    </label>"
-    "  </div>"
-    "  "
-    "  <div class='row'>"
-    "    <span>👁️ Vẽ định vị (ESP)</span>"
-    "    <label class='switch'>"
-    "      <input type='checkbox' id='esp' onchange='toggleAction(\"setEsp\", this.checked)'>"
-    "      <span class='slider'></span>"
-    "    </label>"
-    "  </div>"
-    "  "
-    "  <div class='row'>"
-    "    <span>❤️ Bất tử máu (God Mode)</span>"
-    "    <label class='switch'>"
-    "      <input type='checkbox' id='godmode' onchange='toggleAction(\"setGodMode\", this.checked)'>"
-    "      <span class='slider'></span>"
-    "    </label>"
-    "  </div>"
-    "  "
-    "  <div class='row'>"
-    "    <span>⚡ Chạy siêu tốc (High Speed)</span>"
-    "    <label class='switch'>"
-    "      <input type='checkbox' id='highspeed' onchange='toggleAction(\"setHighSpeed\", this.checked)'>"
-    "      <span class='slider'></span>"
-    "    </label>"
-    "  </div>"
-    "  "
-    "  <div class='slider-container'>"
-    "    <div class='slider-title'>"
-    "      <span>Bán kính vòng ngắm (FOV)</span>"
-    "      <span id='fovVal'>120px</span>"
-    "    </div>"
-    "    <input type='range' min='30' max='300' value='120' class='range-input' id='fovRange' oninput='sliderAction(\"setFov\", this.value)'>"
-    "  </div>"
-    "  "
-    "  <button class='btn-wipe' onclick='sendNativeAction(\"wipeAndExit\")'>💥 ĐÓNG APP & XOÁ SẠCH DỮ LIỆU</button>"
-    "  "
-    "  <script>"
-    "    function sendNativeAction(action) {"
-    "      window.webkit.messageHandlers.HuyBridge.postMessage({ 'action': action });"
-    "    }"
-    "    function toggleAction(action, value) {"
-    "      window.webkit.messageHandlers.HuyBridge.postMessage({ 'action': action, 'value': value });"
-    "    }"
-    "    function sliderAction(action, value) {"
-    "      document.getElementById('fovVal').innerText = value + 'px';"
-    "      window.webkit.messageHandlers.HuyBridge.postMessage({ 'action': action, 'value': parseFloat(value) });"
-    "    }"
-    "    window.onload = function() {"
-    "      window.webkit.messageHandlers.HuyBridge.postMessage({ 'action': 'requestSync' });"
-    "    };"
-    "    function syncWebState(aim, esp, god, speed, fov) {"
-    "      document.getElementById('aimbot').checked = aim;"
-    "      document.getElementById('esp').checked = esp;"
-    "      document.getElementById('godmode').checked = god;"
-    "      document.getElementById('highspeed').checked = speed;"
-    "      document.getElementById('fovRange').value = fov;"
-    "      document.getElementById('fovVal').innerText = fov + 'px';"
-    "    }"
-    "  </script>"
-    "</body>"
-    "</html>";
+static PlayerInfo getMainPlayerInfo(void) {
+    PlayerInfo info = {0};
+    uintptr_t playerAddr = getFFBaseAddress() + OFFSET_MAINPLAYER;
+    info.health = readIntFF(playerAddr + OFFSET_HEALTH);
+    info.armor = readIntFF(playerAddr + OFFSET_ARMOR);
+    info.x = readFloatFF(playerAddr + OFFSET_POS_X);
+    info.y = readFloatFF(playerAddr + OFFSET_POS_Y);
+    info.z = readFloatFF(playerAddr + OFFSET_POS_Z);
+    info.mouseX = readFloatFF(playerAddr + OFFSET_MOUSE_X);
+    info.mouseY = readFloatFF(playerAddr + OFFSET_MOUSE_Y);
+    return info;
+}
+
+static PlayerInfo getEnemyInfo(uintptr_t enemyAddr) {
+    PlayerInfo info = {0};
+    info.health = readIntFF(enemyAddr + OFFSET_HEALTH);
+    info.x = readFloatFF(enemyAddr + OFFSET_POS_X);
+    info.y = readFloatFF(enemyAddr + OFFSET_POS_Y);
+    info.z = readFloatFF(enemyAddr + OFFSET_POS_Z);
+    info.isDead = readBoolFF(enemyAddr + OFFSET_IS_DEAD);
+    info.isTeammate = readBoolFF(enemyAddr + OFFSET_IS_TEAMMATE);
+    info.isVisible = readBoolFF(enemyAddr + OFFSET_IS_VISIBLE);
+    return info;
 }
 
 // =====================================================================
-// LỚP CỬA SỔ TRONG SUỐT CHẠM XUYÊN THẤU (TOUCH PASSTHROUGH)
+// HÀM LẤY DANH SÁCH ENEMY
 // =====================================================================
-@interface HuyPassthroughWindow : UIWindow
-@end
-
-@implementation HuyPassthroughWindow
-
-// Chạm xuyên thấu: Chỉ nhận sự kiện chạm nếu bấm trúng vùng điều khiển menu
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    UIView *hitView = [super hitTest:point withEvent:event];
-    if (menuContainer && !menuContainer.hidden && menuContainer.alpha > 0) {
-        CGPoint pointInContainer = [menuContainer convertPoint:point fromView:self];
-        if ([menuContainer pointInside:pointInContainer withEvent:event]) {
-            return hitView;
-        }
-    }
-    return nil;
-}
-
-@end
-
-// =====================================================================
-// CẦU NỐI XỬ LÝ SỰ KIỆN TỪ WEB SANG NATIVE (WKScriptMessageHandler)
-// =====================================================================
-@interface HuyWebBridgeHandler : NSObject <WKScriptMessageHandler>
-@end
-
-@implementation HuyWebBridgeHandler
-
-- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
-    if ([message.name isEqualToString:@"HuyBridge"]) {
-        NSDictionary *dict = message.body;
-        NSString *action = dict[@"action"];
-        id value = dict[@"value"];
-        
-        if ([action isEqualToString:@"setAimbot"]) {
-            isAimbotActive = [value boolValue];
-            [HuyMenuController drawFovCircleOnScreen];
-        } else if ([action isEqualToString:@"setEsp"]) {
-            isEspActive = [value boolValue];
-        } else if ([action isEqualToString:@"setGodMode"]) {
-            isGodMode = [value boolValue];
-        } else if ([action isEqualToString:@"setHighSpeed"]) {
-            isHighSpeed = [value boolValue];
-        } else if ([action isEqualToString:@"setFov"]) {
-            aimbotFovRadius = [value floatValue];
-            [HuyMenuController drawFovCircleOnScreen];
-        } else if ([action isEqualToString:@"wipeAndExit"]) {
-            wipeAllDataAndExitApp();
-        } else if ([action isEqualToString:@"requestSync"]) {
-            NSString *js = [NSString stringWithFormat:@"syncWebState(%d, %d, %d, %d, %f)", 
-                            isAimbotActive, isEspActive, isGodMode, isHighSpeed, aimbotFovRadius];
-            [menuWebView evaluateJavaScript:js completionHandler:nil];
+static void getAllEnemies(PlayerInfo *enemies, int *count) {
+    *count = 0;
+    uintptr_t enemyBase = getFFBaseAddress() + OFFSET_ENEMYPLAYER;
+    
+    for (int i = 4; i <= 128; i += 4) {
+        uintptr_t addr = enemyBase + i;
+        PlayerInfo enemy = getEnemyInfo(addr);
+        if (enemy.health > 0 && enemy.health <= 100 && enemy.x != 0 && !enemy.isDead && !enemy.isTeammate) {
+            enemies[*count] = enemy;
+            (*count)++;
+            if (*count >= 31) break;
         }
     }
 }
 
-@end
+// =====================================================================
+// HÀM TÍNH KHOẢNG CÁCH
+// =====================================================================
+static float calcDistance3D(PlayerInfo from, PlayerInfo to) {
+    float dx = to.x - from.x;
+    float dy = to.y - from.y;
+    float dz = to.z - from.z;
+    return sqrtf(dx*dx + dy*dy + dz*dz);
+}
 
 // =====================================================================
-// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH
+// HÀM TÌM ENEMY GẦN NHẤT
 // =====================================================================
-@implementation HuyMenuController
+static PlayerInfo findClosestEnemy(PlayerInfo source) {
+    PlayerInfo enemies[32];
+    int count = 0;
+    getAllEnemies(enemies, &count);
+    
+    if (count == 0) {
+        PlayerInfo empty = {0};
+        return empty;
+    }
+    
+    PlayerInfo closest = enemies[0];
+    float minDist = calcDistance3D(source, closest);
+    
+    for (int i = 1; i < count; i++) {
+        float dist = calcDistance3D(source, enemies[i]);
+        if (dist < minDist) {
+            minDist = dist;
+            closest = enemies[i];
+        }
+    }
+    return closest;
+}
+
+// =====================================================================
+// HÀM WORLD TO SCREEN
+// =====================================================================
+static CGPoint worldToScreen(PlayerInfo player, PlayerInfo camera, CGSize screenSize) {
+    // Tạm thời return tọa độ giả
+    return CGPointMake(player.x + 100, player.y + 100);
+}
+
+// =====================================================================
+// HÀM AIMBOT
+// =====================================================================
+static void doAimbot(PlayerInfo source, PlayerInfo target) {
+    if (target.health <= 0) return;
+    if (!isAimThroughWall && !target.isVisible) return;
+    
+    float dist = calcDistance3D(source, target);
+    if (dist < 0.1f) return;
+    if (dist > fovSize) return;
+    
+    // Tính góc
+    float pitch = asinf((target.z - source.z) / dist) * 180.0f / M_PI;
+    float yaw = -atan2f((target.x - source.x), (target.y - source.y)) * 180.0f / M_PI + 180.0f;
+    
+    // Ghi vào memory
+    uintptr_t playerAddr = getFFBaseAddress() + OFFSET_MAINPLAYER;
+    writeFloatFF(playerAddr + OFFSET_MOUSE_X, yaw);
+    writeFloatFF(playerAddr + OFFSET_MOUSE_Y, pitch);
+}
+
+// =====================================================================
+// HÀM GOD MODE
+// =====================================================================
+static void doGodMode(bool enable) {
+    uintptr_t addr = getFFBaseAddress() + OFFSET_GOD_MODE;
+    if (enable) {
+        uint32_t nop = 2341507216;
+        writeIntFF(addr, nop);
+    }
+}
+
+// =====================================================================
+// HÀM SET FULL (MÁU, GIÁP)
+// =====================================================================
+static void setFull(void) {
+    uintptr_t playerAddr = getFFBaseAddress() + OFFSET_MAINPLAYER;
+    writeIntFF(playerAddr + OFFSET_HEALTH, 9337);
+    writeIntFF(playerAddr + OFFSET_ARMOR, 9337);
+    writeIntFF(playerAddr + 0x150, 9337);
+    writeIntFF(playerAddr + 0x13C, 9337);
+    writeIntFF(playerAddr + 0x158, 9337);
+}
+
+// =====================================================================
+// HÀM GHOST HACK
+// =====================================================================
+static void doGhostHack(bool enable) {
+    uintptr_t addr = getFFBaseAddress() + OFFSET_GHOST_HACK;
+    if (enable) {
+        // Patch On: 00 00 A0 E3 1E FF 2F E1
+        uint32_t ghostOn[] = {0xE3A00000, 0xE12FFF1E};
+        writeIntFF(addr, ghostOn[0]);
+        writeIntFF(addr + 4, ghostOn[1]);
+    } else {
+        // Patch Off: F0 4F 2D E9 1C B0 8D E2
+        uint32_t ghostOff[] = {0xE92D4FF0, 0xE28DB01C};
+        writeIntFF(addr, ghostOff[0]);
+        writeIntFF(addr + 4, ghostOff[1]);
+    }
+}
+
+// =====================================================================
+// HÀM BYPASS
+// =====================================================================
+static void doBypass(bool enable) {
+    uintptr_t addr = getFFBaseAddress() + OFFSET_BYPASS;
+    if (enable) {
+        uint32_t retBytes[] = {0xE3A00001, 0xE12FFF1E};
+        writeIntFF(addr, retBytes[0]);
+        writeIntFF(addr + 4, retBytes[1]);
+    }
+}
+
+// =====================================================================
+// VIEW CONTROLLER - OVERLAY + WEB MENU
+// =====================================================================
+@interface OverlayViewController : UIViewController <WKNavigationDelegate, WKScriptMessageHandler>
+@property (nonatomic, strong) WKWebView *webView;
+@property (nonatomic, strong) CAShapeLayer *fovCircle;
+@property (nonatomic, strong) NSMutableArray *espLayers;
+@property (nonatomic, strong) UIView *espCanvas;
+@property (nonatomic, strong) NSTimer *espTimer;
+@end
+
+@implementation OverlayViewController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
+    self.espLayers = [NSMutableArray array];
     
-    // Khung viền bo tròn chứa Menu Web
-    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 350, 460)];
-    menuContainer.backgroundColor = [UIColor clearColor];
-    menuContainer.hidden = YES; 
-    [self.view addSubview:menuContainer];
+    // ESP Canvas
+    self.espCanvas = [[UIView alloc] initWithFrame:self.view.bounds];
+    self.espCanvas.backgroundColor = [UIColor clearColor];
+    self.espCanvas.userInteractionEnabled = NO;
+    self.espCanvas.tag = 999;
+    [self.view addSubview:self.espCanvas];
     
-    // Kéo thả Menu
-    UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
-    [menuContainer addGestureRecognizer:panDrag];
+    // Web Menu
+    WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+    WKUserContentController *contentController = [[WKUserContentController alloc] init];
+    [contentController addScriptMessageHandler:self name:@"toggle"];
+    [contentController addScriptMessageHandler:self name:@"fov"];
+    [contentController addScriptMessageHandler:self name:@"aimTarget"];
+    [contentController addScriptMessageHandler:self name:@"keyCheck"];
+    [contentController addScriptMessageHandler:self name:@"closeApp"];
+    [contentController addScriptMessageHandler:self name:@"features"];
+    config.userContentController = contentController;
     
-    // Thiết lập cầu nối sự kiện Web Bridge
-    WKUserContentController *userContentController = [[WKUserContentController alloc] init];
-    [userContentController addScriptMessageHandler:[[HuyWebBridgeHandler alloc] init] name:@"HuyBridge"];
+    self.webView = [[WKWebView alloc] initWithFrame:CGRectMake(20, 50, self.view.bounds.size.width - 40, self.view.bounds.size.height - 100) configuration:config];
+    self.webView.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.95];
+    self.webView.layer.cornerRadius = 16;
+    self.webView.layer.borderWidth = 2;
+    self.webView.layer.borderColor = [UIColor orangeColor].CGColor;
+    self.webView.hidden = YES;
+    self.webView.navigationDelegate = self;
+    [self.view addSubview:self.webView];
     
-    WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
-    configuration.userContentController = userContentController;
+    [self loadHTMLMenu];
     
-    // Khởi tạo trình duyệt WebView tích hợp
-    menuWebView = [[WKWebView alloc] initWithFrame:menuContainer.bounds configuration:configuration];
-    menuWebView.navigationDelegate = self;
-    menuWebView.backgroundColor = [UIColor clearColor];
-    menuWebView.scrollView.scrollEnabled = NO;
-    menuWebView.scrollView.bounces = NO;
-    menuWebView.layer.cornerRadius = 20;
-    menuWebView.layer.masksToBounds = YES;
-    [menuContainer addSubview:menuWebView];
+    // Menu Button
+    UIButton *menuBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    menuBtn.frame = CGRectMake(10, 50, 50, 50);
+    menuBtn.backgroundColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9];
+    menuBtn.layer.cornerRadius = 25;
+    [menuBtn setTitle:@"⚡" forState:UIControlStateNormal];
+    menuBtn.titleLabel.font = [UIFont systemFontOfSize:24];
+    [menuBtn addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:menuBtn];
     
-    // Load mã HTML trực tiếp từ bộ nhớ dylib
-    [menuWebView loadHTMLString:getMenuHTMLContent() baseURL:nil];
+    // Close Button
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closeBtn.frame = CGRectMake(self.view.bounds.size.width - 60, 50, 50, 50);
+    closeBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
+    closeBtn.layer.cornerRadius = 25;
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:24];
+    [closeBtn addTarget:self action:@selector(closeApp) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:closeBtn];
+    
+    // FOV Circle
+    self.fovCircle = [CAShapeLayer layer];
+    self.fovCircle.fillColor = [UIColor clearColor].CGColor;
+    self.fovCircle.strokeColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:0.5].CGColor;
+    self.fovCircle.lineWidth = 1.5;
+    [self.view.layer addSublayer:self.fovCircle];
+    
+    // ESP Timer
+    self.espTimer = [NSTimer scheduledTimerWithTimeInterval:0.016 target:self selector:@selector(updateLoop) userInfo:nil repeats:YES];
 }
 
-- (void)viewWillLayoutSubviews {
-    [super viewWillLayoutSubviews];
-    CGRect bounds = self.view.bounds;
-    menuContainer.center = CGPointMake(bounds.size.width / 2, bounds.size.height / 2);
+// ====== HTML MENU ======
+- (void)loadHTMLMenu {
+    NSString *html = @"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#0a0a0f;color:#fff;font-family:'Segoe UI',sans-serif;padding:15px;}.header{text-align:center;border-bottom:1px solid #ff6a00;padding-bottom:10px;margin-bottom:15px;}.header h1{color:#ff6a00;font-size:20px;}.header p{color:#888;font-size:11px;}.tab{display:flex;gap:5px;margin-bottom:15px;}.tab button{flex:1;padding:8px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#aaa;font-size:12px;cursor:pointer;}.tab button.active{background:#ff6a00;color:#fff;border-color:#ff6a00;}.section{display:none;}.section.active{display:block;}.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;}.toggle-row label{font-size:13px;color:#ddd;}.toggle-row input[type='range']{width:100px;}.switch{position:relative;width:44px;height:24px;background:#333;border-radius:12px;cursor:pointer;transition:0.3s;}.switch.on{background:#ff6a00;}.switch:after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:0.3s;}.switch.on:after{left:22px;}select{background:#1a1a2e;color:#fff;border:1px solid #333;padding:4px 8px;border-radius:4px;}.key-section{text-align:center;padding:20px 0;}.key-section input{width:80%;padding:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;color:#fff;text-align:center;font-size:14px;}.key-section button{margin-top:10px;padding:10px 30px;background:#ff6a00;border:none;border-radius:8px;color:#fff;font-size:14px;cursor:pointer;}.info{text-align:center;margin-top:15px;font-size:11px;color:#666;}</style></head><body><div class='header'><h1>⚡ FF MOD MENU</h1><p>Overlay ESP + Aimbot v2.0</p></div><div class='tab'><button class='active' onclick='showTab(0)'>ESP</button><button onclick='showTab(1)'>Aimbot</button><button onclick='showTab(2)'>Features</button><button onclick='showTab(3)'>Settings</button></div><div id='tab0' class='section active'><div class='toggle-row'><label>👁️ ESP</label><div class='switch on' onclick='toggleSwitch(this,\"esp\")'></div></div><div class='toggle-row'><label>📦 Box</label><div class='switch on' onclick='toggleSwitch(this,\"box\")'></div></div><div class='toggle-row'><label>📏 Line</label><div class='switch on' onclick='toggleSwitch(this,\"line\")'></div></div><div class='toggle-row'><label>🦴 Skeleton</label><div class='switch on' onclick='toggleSwitch(this,\"skeleton\")'></div></div><div class='toggle-row'><label>🏷️ Tên</label><div class='switch on' onclick='toggleSwitch(this,\"name\")'></div></div><div class='toggle-row'><label>❤️ Máu</label><div class='switch on' onclick='toggleSwitch(this,\"health\")'></div></div></div><div id='tab1' class='section'><div class='toggle-row'><label>🎯 Aimbot</label><div class='switch' onclick='toggleSwitch(this,\"aimbot\")'></div></div><div class='toggle-row'><label>⭕ Vòng FOV</label><div class='switch on' onclick='toggleSwitch(this,\"fovcircle\")'></div></div><div class='toggle-row'><label>📏 FOV Size: <span id='fovVal'>150</span></label><input type='range' min='30' max='300' value='150' oninput='updateFov(this.value)'></div><div class='toggle-row'><label>🎯 Aim Target</label><select id='aimTarget' onchange='updateAimTarget(this.value)'><option value='0'>Đầu</option><option value='1'>Cổ</option><option value='2' selected>Ngực</option><option value='3'>Body</option></select></div><div class='toggle-row'><label>🔒 Ghim xuyên tường</label><div class='switch' onclick='toggleSwitch(this,\"wall\")'></div></div><div class='toggle-row'><label>⚡ Bắn mới ghim</label><div class='switch on' onclick='toggleSwitch(this,\"always\")'></div></div></div><div id='tab2' class='section'><div class='toggle-row'><label>👻 Ghost Hack</label><div class='switch' onclick='toggleSwitch(this,\"ghost\")'></div></div><div class='toggle-row'><label>🛡️ God Mode</label><div class='switch' onclick='toggleSwitch(this,\"god\")'></div></div><div class='toggle-row'><label>⚡ Speed Hack</label><div class='switch' onclick='toggleSwitch(this,\"speed\")'></div></div><div class='toggle-row'><label>🔄 Bypass</label><div class='switch' onclick='toggleSwitch(this,\"bypass\")'></div></div></div><div id='tab3' class='section'><div class='key-section'><input type='text' id='keyInput' placeholder='🔑 Nhập Key...' style='width:80%;padding:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;color:#fff;text-align:center;font-size:14px;'><br><button onclick='checkKey()'>✅ KÍCH HOẠT</button><div style='margin-top:10px;font-size:12px;color:#888;' id='keyStatus'>Chưa kích hoạt</div></div><div style='text-align:center;margin-top:10px;'><button onclick='closeApp()' style='padding:10px 30px;background:#e74c3c;border:none;border-radius:8px;color:#fff;font-size:14px;cursor:pointer;'>🔴 ĐÓNG APP</button></div><div class='info'>⚡ Made by Anonymous | Overlay v2.0</div></div><script>function showTab(i){document.querySelectorAll('.section').forEach(el=>el.classList.remove('active'));document.getElementById('tab'+i).classList.add('active');document.querySelectorAll('.tab button').forEach((el,idx)=>{el.classList.toggle('active',idx===i);});}function toggleSwitch(el,name){el.classList.toggle('on');var value=el.classList.contains('on')?1:0;window.webkit.messageHandlers.toggle.postMessage({name:name,value:value});}function updateFov(v){document.getElementById('fovVal').innerText=v;window.webkit.messageHandlers.fov.postMessage({value:parseFloat(v)});}function updateAimTarget(v){window.webkit.messageHandlers.aimTarget.postMessage({value:parseInt(v)});}function checkKey(){var key=document.getElementById('keyInput').value;window.webkit.messageHandlers.keyCheck.postMessage({key:key});}function closeApp(){window.webkit.messageHandlers.closeApp.postMessage({});}</script></body></html>";
+    [self.webView loadHTMLString:html baseURL:nil];
 }
 
-- (void)handleMenuDrag:(UIPanGestureRecognizer *)gesture {
-    CGPoint trans = [gesture translationInView:self.view];
-    if (gesture.state == UIGestureRecognizerStateChanged) {
-        menuContainer.center = CGPointMake(menuContainer.center.x + trans.x, menuContainer.center.y + trans.y);
-        [gesture setTranslation:CGPointZero inView:self.view];
+// ====== WEBVIEW MESSAGE HANDLER ======
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
+    NSDictionary *data = message.body;
+    
+    if ([message.name isEqualToString:@"toggle"]) {
+        NSString *name = data[@"name"];
+        int value = [data[@"value"] intValue];
+        if ([name isEqualToString:@"esp"]) isEspEnabled = value;
+        else if ([name isEqualToString:@"box"]) isBoxEnabled = value;
+        else if ([name isEqualToString:@"line"]) isLineEnabled = value;
+        else if ([name isEqualToString:@"skeleton"]) isSkeletonEnabled = value;
+        else if ([name isEqualToString:@"name"]) isNameEnabled = value;
+        else if ([name isEqualToString:@"health"]) isHealthEnabled = value;
+        else if ([name isEqualToString:@"aimbot"]) isAimbotEnabled = value;
+        else if ([name isEqualToString:@"fovcircle"]) isFovCircleEnabled = value;
+        else if ([name isEqualToString:@"wall"]) isAimThroughWall = value;
+        else if ([name isEqualToString:@"always"]) isAlwaysAim = value;
+        else if ([name isEqualToString:@"ghost"]) { isGhostEnabled = value; doGhostHack(value); }
+        else if ([name isEqualToString:@"god"]) { isGodMode = value; doGodMode(value); }
+        else if ([name isEqualToString:@"speed"]) isSpeedHack = value;
+        else if ([name isEqualToString:@"bypass"]) { isBypassEnabled = value; doBypass(value); }
+    } else if ([message.name isEqualToString:@"fov"]) {
+        fovSize = [data[@"value"] floatValue];
+    } else if ([message.name isEqualToString:@"aimTarget"]) {
+        aimTarget = [data[@"value"] intValue];
+    } else if ([message.name isEqualToString:@"closeApp"]) {
+        [self closeApp];
+    } else if ([message.name isEqualToString:@"keyCheck"]) {
+        [self checkKey:data[@"key"]];
     }
 }
 
-+ (void)openMenuWithAnimation {
-    menuContainer.hidden = NO;
-    menuContainer.transform = CGAffineTransformMakeScale(0.6, 0.6);
-    menuContainer.alpha = 0.0;
-    [UIView animateWithDuration:0.25 delay:0.0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-        menuContainer.transform = CGAffineTransformIdentity;
-        menuContainer.alpha = 1.0;
-    } completion:nil];
+// ====== CHECK KEY FIREBASE ======
+- (void)checkKey:(NSString *)key {
+    if (key.length == 0) {
+        [self showWebMessage:@"⚠️ Vui lòng nhập Key!"];
+        return;
+    }
+    NSString *url = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { [self showWebMessage:@"❌ Lỗi kết nối!"]; return; }
+            NSError *jsonError;
+            NSDictionary *keyData = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+            if (!keyData || [keyData isKindOfClass:[NSNull class]]) { [self showWebMessage:@"❌ Key không tồn tại!"]; return; }
+            NSTimeInterval expiration = [keyData[@"expiration"] doubleValue];
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+            if (expiration < now) { [self showWebMessage:@"❌ Key đã hết hạn!"]; return; }
+            isKeyValidated = YES;
+            [self showWebMessage:@"✅ Kích hoạt thành công!"];
+            [self enableAllFeatures];
+        });
+    }];
+    [task resume];
 }
 
-+ (void)toggleMenuGlobal {
-    if (menuContainer.hidden) {
-        [HuyMenuController openMenuWithAnimation];
-        [HuyMenuController drawFovCircleOnScreen];
-        
-        NSString *js = [NSString stringWithFormat:@"syncWebState(%d, %d, %d, %d, %f)", 
-                        isAimbotActive, isEspActive, isGodMode, isHighSpeed, aimbotFovRadius];
-        [menuWebView evaluateJavaScript:js completionHandler:nil];
+- (void)showWebMessage:(NSString *)msg {
+    NSString *js = [NSString stringWithFormat:@"document.getElementById('keyStatus').innerText = '%@';", msg];
+    [self.webView evaluateJavaScript:js completionHandler:nil];
+}
+
+- (void)enableAllFeatures {
+    isEspEnabled = YES;
+    isAimbotEnabled = YES;
+    NSString *js = @"document.querySelectorAll('.switch').forEach(el => el.classList.add('on'));";
+    [self.webView evaluateJavaScript:js completionHandler:nil];
+}
+
+// ====== TOGGLE MENU ======
+- (void)toggleMenu {
+    self.webView.hidden = !self.webView.hidden;
+}
+
+// ====== CLOSE APP ======
+- (void)closeApp {
+    exit(0);
+}
+
+// ====== UPDATE LOOP ======
+- (void)updateLoop {
+    // ESP
+    if (isEspEnabled) {
+        [self drawESP];
+    }
+    
+    // Aimbot
+    if (isAimbotEnabled && isKeyValidated) {
+        PlayerInfo player = getMainPlayerInfo();
+        PlayerInfo target = findClosestEnemy(player);
+        if (target.health > 0) {
+            doAimbot(player, target);
+        }
+    }
+    
+    // God Mode (duy trì)
+    if (isGodMode) {
+        doGodMode(YES);
+    }
+    
+    // Full (duy trì)
+    if (isKeyValidated) {
+        setFull();
+    }
+}
+
+// ====== DRAW ESP ======
+- (void)drawESP {
+    if (!isEspEnabled) return;
+    
+    // Xóa layer cũ
+    for (CALayer *layer in self.espLayers) {
+        [layer removeFromSuperlayer];
+    }
+    [self.espLayers removeAllObjects];
+    
+    PlayerInfo player = getMainPlayerInfo();
+    PlayerInfo enemies[32];
+    int count = 0;
+    getAllEnemies(enemies, &count);
+    
+    CGSize screenSize = self.view.bounds.size;
+    CGPoint center = CGPointMake(screenSize.width/2, screenSize.height/2);
+    
+    // FOV
+    if (isFovCircleEnabled && isAimbotEnabled) {
+        UIBezierPath *fovPath = [UIBezierPath bezierPathWithArcCenter:center radius:fovSize startAngle:0 endAngle:2 * M_PI clockwise:YES];
+        self.fovCircle.path = fovPath.CGPath;
+        self.fovCircle.hidden = NO;
     } else {
-        [UIView animateWithDuration:0.2 animations:^{
-            menuContainer.transform = CGAffineTransformMakeScale(0.7, 0.7);
-            menuContainer.alpha = 0.0;
-        } completion:^(BOOL finished) {
-            menuContainer.hidden = YES;
-        }];
+        self.fovCircle.hidden = YES;
     }
-}
-
-+ (void)drawFovCircleOnScreen {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (fovCircleLayer) {
-            [fovCircleLayer removeFromSuperlayer];
-            fovCircleLayer = nil;
+    
+    for (int i = 0; i < count; i++) {
+        PlayerInfo enemy = enemies[i];
+        if (enemy.health <= 0 || enemy.isDead) continue;
+        
+        CGPoint screenPos = worldToScreen(enemy, player, screenSize);
+        if (screenPos.x < 0 || screenPos.y < 0) continue;
+        
+        CGFloat boxSize = 40.0;
+        CGRect boxRect = CGRectMake(screenPos.x - boxSize/2, screenPos.y - boxSize, boxSize, boxSize);
+        
+        // BOX
+        if (isBoxEnabled) {
+            UIBezierPath *path = [UIBezierPath bezierPathWithRect:boxRect];
+            CAShapeLayer *layer = [CAShapeLayer layer];
+            layer.path = path.CGPath;
+            layer.strokeColor = enemy.isVisible ? [UIColor redColor].CGColor : [UIColor grayColor].CGColor;
+            layer.lineWidth = 1.5;
+            layer.fillColor = [UIColor clearColor].CGColor;
+            [self.espCanvas.layer addSublayer:layer];
+            [self.espLayers addObject:layer];
         }
         
-        if (!overlayMenuWindow || !showFovCircle || !isAimbotActive) return;
+        // LINE
+        if (isLineEnabled) {
+            UIBezierPath *linePath = [UIBezierPath bezierPath];
+            [linePath moveToPoint:center];
+            [linePath addLineToPoint:screenPos];
+            CAShapeLayer *lineLayer = [CAShapeLayer layer];
+            lineLayer.path = linePath.CGPath;
+            lineLayer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
+            lineLayer.lineWidth = 0.8;
+            [self.espCanvas.layer addSublayer:lineLayer];
+            [self.espLayers addObject:lineLayer];
+        }
         
-        CGPoint center = overlayMenuWindow.center;
-        UIBezierPath *path = [UIBezierPath bezierPathWithArcCenter:center radius:aimbotFovRadius startAngle:0 endAngle:2 * M_PI clockwise:YES];
+        // SKELETON
+        if (isSkeletonEnabled) {
+            UIBezierPath *skelPath = [UIBezierPath bezierPath];
+            [skelPath moveToPoint:CGPointMake(boxRect.origin.x, boxRect.origin.y)];
+            [skelPath addLineToPoint:CGPointMake(boxRect.origin.x + boxSize, boxRect.origin.y + boxSize)];
+            [skelPath moveToPoint:CGPointMake(boxRect.origin.x + boxSize, boxRect.origin.y)];
+            [skelPath addLineToPoint:CGPointMake(boxRect.origin.x, boxRect.origin.y + boxSize)];
+            CAShapeLayer *skelLayer = [CAShapeLayer layer];
+            skelLayer.path = skelPath.CGPath;
+            skelLayer.strokeColor = [UIColor orangeColor].CGColor;
+            skelLayer.lineWidth = 1;
+            [self.espCanvas.layer addSublayer:skelLayer];
+            [self.espLayers addObject:skelLayer];
+        }
         
-        fovCircleLayer = [CAShapeLayer layer];
-        fovCircleLayer.path = path.CGPath;
-        fovCircleLayer.fillColor = [UIColor clearColor].CGColor;
-        fovCircleLayer.strokeColor = [UIColor colorWithRed:0.0 green:0.94 blue:1.0 alpha:1.0].CGColor; 
-        fovCircleLayer.lineWidth = 1.2f;
-        fovCircleLayer.opacity = 0.7f;
+        // NAME
+        if (isNameEnabled) {
+            UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 30, screenPos.y - boxSize - 20, 60, 15)];
+            nameLabel.text = [NSString stringWithFormat:@"Enemy %d", i];
+            nameLabel.textColor = [UIColor whiteColor];
+            nameLabel.font = [UIFont systemFontOfSize:9];
+            nameLabel.textAlignment = NSTextAlignmentCenter;
+            nameLabel.tag = 9999;
+            [self.espCanvas addSubview:nameLabel];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [nameLabel removeFromSuperview];
+            });
+        }
         
-        [overlayMenuWindow.layer addSublayer:fovCircleLayer];
-    });
+        // HEALTH
+        if (isHealthEnabled) {
+            UILabel *healthLabel = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 20, screenPos.y - boxSize - 5, 40, 12)];
+            healthLabel.text = [NSString stringWithFormat:@"❤️ %d", enemy.health];
+            healthLabel.textColor = enemy.health > 50 ? [UIColor greenColor] : [UIColor redColor];
+            healthLabel.font = [UIFont systemFontOfSize:8];
+            healthLabel.textAlignment = NSTextAlignmentCenter;
+            healthLabel.tag = 9998;
+            [self.espCanvas addSubview:healthLabel];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [healthLabel removeFromSuperview];
+            });
+        }
+    }
 }
 
 @end
 
 // =====================================================================
-// KHỞI CHẠY GIAO DIỆN & TẠO LOGO WHITE HAT CHỐNG NUỐT CẢM ỨNG
+// CONSTRUCTOR
 // =====================================================================
-@interface HuyMenuInitializer : NSObject
-+ (void)tryInitializeUI;
-@end
-
-@implementation HuyMenuInitializer
-
-+ (void)tryInitializeUI {
+__attribute__((constructor)) static void init() {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindowScene *scene = nil;
-        
-        if (@available(iOS 13.0, *)) {
-            scene = getActiveWindowScene();
-            if (!scene) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [HuyMenuInitializer tryInitializeUI];
-                });
-                return;
-            }
-        }
-        
-        // 1. TẠO CỬ SỔ LOGO WHITE HAT DI ĐỘNG KÉO THẢ
-        if (@available(iOS 13.0, *)) {
-            floatingButtonWindow = [[UIWindow alloc] initWithWindowScene:scene];
-        } else {
-            floatingButtonWindow = [[UIWindow alloc] initWithFrame:CGRectMake(20, 180, 56, 56)];
-        }
-        floatingButtonWindow.frame = CGRectMake(20, 180, 56, 56);
-        floatingButtonWindow.backgroundColor = [UIColor clearColor];
-        floatingButtonWindow.windowLevel = UIWindowLevelAlert + 1001; 
-        
-        UIViewController *btnRootVC = [[UIViewController alloc] init];
-        btnRootVC.view.backgroundColor = [UIColor clearColor];
-        floatingButtonWindow.rootViewController = btnRootVC;
-        
-        floatingLogoBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        floatingLogoBtn.frame = btnRootVC.view.bounds;
-        floatingLogoBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        floatingLogoBtn.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.9];
-        floatingLogoBtn.layer.cornerRadius = 28;
-        floatingLogoBtn.layer.borderWidth = 1.5;
-        floatingLogoBtn.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor; 
-        
-        [floatingLogoBtn setTitle:@"🕵️‍♂️" forState:UIControlStateNormal];
-        floatingLogoBtn.titleLabel.font = [UIFont systemFontOfSize:28];
-        
-        floatingLogoBtn.layer.shadowColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor;
-        floatingLogoBtn.layer.shadowOffset = CGSizeZero;
-        floatingLogoBtn.layer.shadowRadius = 8;
-        floatingLogoBtn.layer.shadowOpacity = 0.9;
-        
-        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleFloatingPan:)];
-        [floatingLogoBtn addGestureRecognizer:pan];
-        
-        [floatingLogoBtn addTarget:self action:@selector(toggleHuyMenuViaLogo) forControlEvents:UIControlEventTouchUpInside];
-        [btnRootVC.view addSubview:floatingLogoBtn];
-        floatingButtonWindow.hidden = NO;
-
-        // 2. TẠO CỬ SỔ TRONG SUỐT HOẠT ĐỘNG 24/24 CHỨA MENU WEB & FOV
-        if (@available(iOS 13.0, *)) {
-            overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithWindowScene:scene];
-        } else {
-            overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-        }
-        overlayMenuWindow.frame = [UIScreen mainScreen].bounds;
-        overlayMenuWindow.backgroundColor = [UIColor clearColor];
-        overlayMenuWindow.windowLevel = UIWindowLevelAlert + 1000;
-        
-        HuyMenuController *controller = [[HuyMenuController alloc] init];
-        overlayMenuWindow.rootViewController = controller;
-        overlayMenuWindow.hidden = NO; 
+        overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        overlayWindow.windowLevel = UIWindowLevelAlert + 1000;
+        overlayWindow.backgroundColor = [UIColor clearColor];
+        overlayWindow.rootViewController = [[OverlayViewController alloc] init];
+        overlayWindow.hidden = NO;
     });
 }
-
-+ (void)handleFloatingPan:(UIPanGestureRecognizer *)gesture {
-    UIView *btn = gesture.view;
-    CGPoint translation = [gesture translationInView:btn.superview];
-    if (gesture.state == UIGestureRecognizerStateChanged) {
-        floatingButtonWindow.center = CGPointMake(floatingButtonWindow.center.x + translation.x, floatingButtonWindow.center.y + translation.y);
-        [gesture setTranslation:CGPointZero inView:btn.superview];
-    }
-}
-
-+ (void)toggleHuyMenuViaLogo {
-    [HuyMenuController toggleMenuGlobal];
-}
-
-@end
-
-// Khởi chạy dylib tự động khi được tải vào app
-__attribute__((constructor)) static void initialize() {
-    if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
-        [HuyMenuInitializer tryInitializeUI];
-    } else {
-        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
-                                                          object:nil
-                                                           queue:[NSOperationQueue mainQueue]
-                                                      usingBlock:^(NSNotification * _Nonnull note) {
-            [HuyMenuInitializer tryInitializeUI];
-        }];
-    }
-}
-
