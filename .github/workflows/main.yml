@@ -1,34 +1,23 @@
-
-name: Build Mod Menu iOS
+name: Create FFCheat
 
 on: [push]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
-    - name: Lay code ve may ao
+    - name: Checkout
       uses: actions/checkout@v4
     
-    - name: Compile dylib
+    - name: Create FFCheat file
       run: |
-        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        # Tạo file không đuôi
+        echo "FFCheat file" > FFCheat
+        # Hoặc nén thư mục thành file không đuôi
+        zip -r FFCheat make.dylib.m menu.html
         
-        # Biên dịch dylib bằng Clang
-        clang -dynamiclib -arch arm64 \
-          -isysroot $SDK \
-          -fobjc-arc \
-          -miphoneos-version-min=13.0 \
-          -framework UIKit \
-          -framework Foundation \
-          -framework CoreGraphics \
-          -framework QuartzCore \
-          -undefined dynamic_lookup \
-          -o GrannyModMenu.dylib make.dylib.m
-          
-    - name: Tai file dylib len de nguoi dung download
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: GrannyModMenu-iOS
-        path: GrannyModMenu.dylib
-
+        name: FFCheat
+        path: FFCheat
