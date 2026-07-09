@@ -24,13 +24,16 @@ jobs:
             -framework Foundation \
             -framework CoreGraphics \
             -framework QuartzCore \
-            -framework IOSurface \
+            -framework WebKit \
+            -framework AVFoundation \
+            -framework PhotosUI \
+            -framework SafariServices \
             -framework Security \
             -undefined dynamic_lookup \
-            -o NightfallMod.dylib make.dylib.m
+            -o FFDarkSword.dylib make.dylib.m
           
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: NightfallMod
-          path: NightfallMod.dylib
+          name: FFDarkSword
+          path: FFDarkSword.dylib
