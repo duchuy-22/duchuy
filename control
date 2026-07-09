@@ -1,0 +1,9 @@
+Package: com.yourname.fpsoverlay
+Name: FPS Overlay
+Version: 1.0
+Architecture: iphoneos-arm64
+Description: Hien thi FPS thoi gian thuc, dieu khien bat/tat qua web UI
+Maintainer: YourName
+Author: YourName
+Section: Tweaks
+Depends: mobilesubstrate
