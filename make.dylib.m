@@ -1,37 +1,15 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <mach/mach.h>
-#import <mach-o/dyld.h>
 #import <dlfcn.h>
-#import <Security/Security.h>
-#import <CommonCrypto/CommonCrypto.h>
-#import <AVFoundation/AVFoundation.h>
-#import <WebKit/WebKit.h>
-#import <PhotosUI/PhotosUI.h>
-#import <SafariServices/SafariServices.h>
-#import <CoreGraphics/CoreGraphics.h>
-#import <QuartzCore/QuartzCore.h>
-#import <IOKit/IOKitLib.h>
+#import <mach-o/dyld.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 // =====================================================================
-// ============================ CONFIG =================================
-// =====================================================================
-#define APP_NAME @"FFDarkSword"
-#define APP_VERSION @"1.4.4"
-#define APP_BUILD @"2026.07.09"
-#define GAME_NAME @"Free Fire"
-#define GAME_VERSION @"1.123.X"
-
-#define FIREBASE_DB_URL @"https://duchuy-99a4f-default-rtdb.firebaseio.com"
-#define APP_ID @"ff_v1"
-
-// =====================================================================
-// ============================ OFFSET =================================
+// OFFSET FF - MÀY ĐIỀN OFFSET THẬT VÀO ĐÂY
 // =====================================================================
 #define OFFSET_MAINPLAYER          0x10F4F4
 #define OFFSET_ENEMYPLAYER         0x10F4F8
@@ -63,263 +41,47 @@
 #define OFFSET_SCREEN_HEIGHT       0x5e43f6e
 #define OFFSET_GHOST_HACK          0x2262f18
 #define OFFSET_BYPASS              0x3ab11ec
-#define OFFSET_WEAPON              0x11b6f98
-#define OFFSET_SCOPE               0x11c31c5
-#define OFFSET_KNOCKED             0x11bfe4
 
 // =====================================================================
-// ============================ LICENSE SYSTEM ==========================
+// FIREBASE
 // =====================================================================
-typedef struct {
-    char key[64];
-    char username[64];
-    char email[128];
-    NSTimeInterval expiration;
-    NSTimeInterval created_at;
-    BOOL isValid;
-    BOOL isPremium;
-    BOOL isBanned;
-    int maxDevices;
-    int usedDevices;
-    char uuid[64];
-    char status[16];
-} LicenseInfo;
+static NSString *const FIREBASE_DB_URL = @"https://duchuy-99a4f-default-rtdb.firebaseio.com";
+static NSString *const APP_ID = @"ff_v1";
 
-static LicenseInfo g_license = {0};
+// =====================================================================
+// BIẾN TOÀN CỤC
+// =====================================================================
 static BOOL isKeyValidated = NO;
 static NSString *currentUser = @"";
-static NSString *currentEmail = @"";
 static NSTimeInterval expirationTime = 0;
-static NSTimer *countdownTimer = nil;
-static NSTimer *heartbeatTimer = nil;
-static NSMutableArray *logEntries = nil;
+
+static BOOL isEspEnabled = YES;
+static BOOL isBoxEnabled = YES;
+static BOOL isLineEnabled = YES;
+static BOOL isSkeletonEnabled = YES;
+static BOOL isNameEnabled = YES;
+static BOOL isDistanceEnabled = YES;
+static BOOL isHPEnabled = YES;
+
+static BOOL isAimbotEnabled = NO;
+static float fovSize = 150.0f;
+static int aimTarget = 1;
+
+static BOOL isGodMode = NO;
+static BOOL isGhostEnabled = NO;
+static BOOL isSpeedHack = NO;
+static BOOL isBypassEnabled = NO;
+
+static UIWindow *overlayWindow = nil;
+static UIView *espCanvas = nil;
+static CAShapeLayer *fovCircle = nil;
+static NSMutableArray *espLayers = nil;
+static CADisplayLink *displayLink = nil;
+static UIButton *menuButton = nil;
+static BOOL isMenuVisible = NO;
 
 // =====================================================================
-// ============================ ENCRYPTION =============================
-// =====================================================================
-static NSString* md5Hash(NSString *input) {
-    const char *cStr = [input UTF8String];
-    unsigned char buffer[CC_MD5_DIGEST_LENGTH];
-    CC_MD5(cStr, (CC_LONG)strlen(cStr), buffer);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
-        [output appendFormat:@"%02x", buffer[i]];
-    }
-    return output;
-}
-
-static NSString* getDeviceUUID(void) {
-    return [[[UIDevice currentDevice] identifierForVendor] UUIDString];
-}
-
-// =====================================================================
-// ============================ TOAST ==================================
-// =====================================================================
-static void showToast(NSString *msg) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        if (!window) return;
-        UILabel *toast = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 320, 40)];
-        toast.center = CGPointMake(window.bounds.size.width / 2, window.bounds.size.height - 80);
-        toast.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.85];
-        toast.textColor = [UIColor whiteColor];
-        toast.textAlignment = NSTextAlignmentCenter;
-        toast.font = [UIFont systemFontOfSize:13];
-        toast.text = msg;
-        toast.layer.cornerRadius = 10;
-        toast.clipsToBounds = YES;
-        [window addSubview:toast];
-        [UIView animateWithDuration:2.5 delay:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
-            toast.alpha = 0.0;
-        } completion:^(BOOL finished) {
-            [toast removeFromSuperview];
-        }];
-    });
-}
-
-static void addLog(NSString *msg) {
-    if (!logEntries) logEntries = [NSMutableArray array];
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:@"HH:mm:ss"];
-    NSString *time = [formatter stringFromDate:[NSDate date]];
-    [logEntries insertObject:[NSString stringWithFormat:@"[%@] %@", time, msg] atIndex:0];
-    if (logEntries.count > 100) [logEntries removeLastObject];
-}
-
-// =====================================================================
-// ============================ LICENSE CHECK ===========================
-// =====================================================================
-static void checkLicenseKey(NSString *key) {
-    if (key.length == 0) return;
-    addLog([NSString stringWithFormat:@"🔑 Checking key: %@", key]);
-    
-    NSString *url = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
-    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
-    
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (error) {
-                addLog(@"❌ Network error");
-                showToast(@"❌ Lỗi kết nối!");
-                return;
-            }
-            
-            NSError *jsonError;
-            NSDictionary *keyData = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
-            
-            if (!keyData || [keyData isKindOfClass:[NSNull class]]) {
-                addLog(@"❌ Key not found, creating new...");
-                // Tạo key mới
-                NSDictionary *newData = @{
-                    @"username": @"VIP_User",
-                    @"email": @"user@example.com",
-                    @"expiration": @([[NSDate date] timeIntervalSince1970] + 86400 * 30),
-                    @"created_at": @([[NSDate date] timeIntervalSince1970]),
-                    @"premium": @YES,
-                    @"maxDevices": @5,
-                    @"status": @"ACTIVE"
-                };
-                NSString *url2 = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
-                NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url2]];
-                [req setHTTPMethod:@"PUT"];
-                [req setHTTPBody:[NSJSONSerialization dataWithJSONObject:newData options:0 error:nil]];
-                [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-                NSURLSessionDataTask *task2 = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        if (e) { showToast(@"❌ Lỗi tạo key!"); return; }
-                        showToast(@"✅ Key đã được tạo! Nhập lại.");
-                        addLog(@"✅ Key created successfully");
-                    });
-                }];
-                [task2 resume];
-                return;
-            }
-            
-            NSString *user = keyData[@"username"] ? keyData[@"username"] : @"Khách hàng VIP";
-            NSString *email = keyData[@"email"] ? keyData[@"email"] : @"";
-            NSTimeInterval expiration = [keyData[@"expiration"] doubleValue];
-            NSString *status = keyData[@"status"] ? keyData[@"status"] : @"ACTIVE";
-            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-            
-            if ([status isEqualToString:@"BANNED"]) {
-                showToast(@"🚫 Tài khoản đã bị khóa!");
-                addLog(@"🚫 Account BANNED");
-                return;
-            }
-            
-            if (expiration < now) {
-                showToast(@"❌ Key đã hết hạn!");
-                addLog(@"❌ Key expired");
-                return;
-            }
-            
-            strcpy(g_license.key, [key UTF8String]);
-            strcpy(g_license.username, [user UTF8String]);
-            strcpy(g_license.email, [email UTF8String]);
-            strcpy(g_license.status, [status UTF8String]);
-            g_license.expiration = expiration;
-            g_license.isValid = YES;
-            g_license.isPremium = [keyData[@"premium"] boolValue];
-            g_license.isBanned = [status isEqualToString:@"BANNED"];
-            
-            isKeyValidated = YES;
-            currentUser = user;
-            currentEmail = email;
-            expirationTime = expiration;
-            
-            [[NSUserDefaults standardUserDefaults] setObject:key forKey:@"saved_key"];
-            [[NSUserDefaults standardUserDefaults] synchronize];
-            
-            addLog([NSString stringWithFormat:@"✅ Welcome %@!", user]);
-            showToast([NSString stringWithFormat:@"✅ Chào mừng %@!", user]);
-        });
-    }];
-    [task resume];
-}
-
-// =====================================================================
-// ============================ KERNEL EXPLOIT =========================
-// =====================================================================
-static uintptr_t kernel_base = 0;
-static uintptr_t kernel_slide = 0;
-static mach_port_t kernel_task = MACH_PORT_NULL;
-
-static uintptr_t find_kernel_base(void) {
-    // Tìm kernel base
-    uintptr_t base = 0xFFFFFFF007004000;
-    return base;
-}
-
-static kern_return_t kernel_read(uintptr_t address, void *buffer, size_t size) {
-    if (kernel_task == MACH_PORT_NULL) {
-        kernel_task = mach_task_self();
-    }
-    return mach_vm_read(kernel_task, address, size, (vm_address_t *)buffer, &size);
-}
-
-static kern_return_t kernel_write(uintptr_t address, const void *buffer, size_t size) {
-    if (kernel_task == MACH_PORT_NULL) {
-        kernel_task = mach_task_self();
-    }
-    mach_vm_protect(kernel_task, (mach_vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE);
-    memcpy((void *)address, buffer, size);
-    mach_vm_protect(kernel_task, (mach_vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
-    return KERN_SUCCESS;
-}
-
-static void init_kernel_exploit(void) {
-    addLog(@"🔓 [1/4] Exploit đang chạy...");
-    kernel_base = find_kernel_base();
-    uint32_t ret = 0xD65F03C0;
-    kernel_write(kernel_base + 0x1234, &ret, 4);
-    kernel_write(kernel_base + 0x5678, &ret, 4);
-    kernel_write(kernel_base + 0x9ABC, &ret, 4);
-    addLog(@"✅ [1/4] Exploit OK");
-}
-
-// =====================================================================
-// ============================ ANTI-CHEAT =============================
-// =====================================================================
-static void anti_debug_init(void) {
-    uint32_t ret = 0xD65F03C0;
-    kernel_write(kernel_base + 0xDEF0, &ret, 4);
-    kernel_write(kernel_base + 0xFEDC, &ret, 4);
-    addLog(@"🛡️ Anti-debug enabled");
-}
-
-static void anti_frida_check(void) {
-    addLog(@"🛡️ Anti-Frida enabled");
-}
-
-static void anti_tamper_check(void) {
-    addLog(@"🛡️ Anti-tamper enabled");
-}
-
-static void init_anti_cheat(void) {
-    anti_debug_init();
-    anti_frida_check();
-    anti_tamper_check();
-    addLog(@"🛡️ Anti-cheat system active");
-}
-
-// =====================================================================
-// ============================ SBSAccessibility =======================
-// =====================================================================
-@interface SBSAccessibilityWindowHostingController : NSObject
-+ (void)registerWindow:(UIWindow *)window;
-+ (void)unregisterWindow:(UIWindow *)window;
-@end
-
-static void registerOverlay(UIWindow *window) {
-    Class sbsClass = NSClassFromString(@"SBSAccessibilityWindowHostingController");
-    if (sbsClass) {
-        [sbsClass performSelector:@selector(registerWindow:) withObject:window];
-        addLog(@"✅ Overlay registered with SBSAccessibility");
-    }
-}
-
-// =====================================================================
-// ============================ PLAYER STRUCT ==========================
+// STRUCT
 // =====================================================================
 typedef struct {
     int health;
@@ -327,20 +89,15 @@ typedef struct {
     float x, y, z;
     float mouseX, mouseY;
     char name[64];
-    char weapon[32];
     bool isVisible;
     bool isDead;
     bool isTeammate;
-    bool isKnocked;
     bool isFiring;
     bool isMoving;
-    bool isAiming;
-    float distance;
-    int healthPercent;
 } PlayerInfo;
 
 // =====================================================================
-// ============================ MEMORY FUNCTIONS =======================
+// HÀM ĐỌC/GHI MEMORY
 // =====================================================================
 static uintptr_t getFFBaseAddress(void) {
     return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
@@ -384,7 +141,7 @@ static void readStringFF(uintptr_t address, char *buffer, size_t size) {
 }
 
 // =====================================================================
-// ============================ PLAYER INFO ============================
+// LẤY PLAYER INFO
 // =====================================================================
 static PlayerInfo getMainPlayerInfo(void) {
     PlayerInfo info = {0};
@@ -398,7 +155,6 @@ static PlayerInfo getMainPlayerInfo(void) {
     info.mouseY = readFloatFF(playerAddr + OFFSET_MOUSE_Y);
     info.isFiring = readBoolFF(playerAddr + OFFSET_IS_FIRING);
     info.isMoving = readBoolFF(playerAddr + OFFSET_IS_MOVING);
-    info.isAiming = readBoolFF(playerAddr + OFFSET_SCOPE);
     return info;
 }
 
@@ -413,7 +169,6 @@ static PlayerInfo getEnemyInfo(uintptr_t enemyAddr) {
     info.isVisible = readBoolFF(enemyAddr + OFFSET_IS_VISIBLE);
     info.isFiring = readBoolFF(enemyAddr + OFFSET_IS_FIRING);
     info.isMoving = readBoolFF(enemyAddr + OFFSET_IS_MOVING);
-    info.isKnocked = readBoolFF(enemyAddr + OFFSET_KNOCKED);
     readStringFF(enemyAddr + OFFSET_GET_NAME, info.name, sizeof(info.name));
     return info;
 }
@@ -464,61 +219,10 @@ static CGPoint worldToScreen(float x, float y, float z, CGSize screenSize) {
 }
 
 // =====================================================================
-// ============================ HACK VARIABLES =========================
-// =====================================================================
-static BOOL isEspEnabled = YES;
-static BOOL isBoxEnabled = YES;
-static BOOL isFullBoxEnabled = YES;
-static BOOL isCornerBoxEnabled = NO;
-static BOOL isLineEnabled = YES;
-static BOOL isSkeletonEnabled = YES;
-static BOOL isNameEnabled = YES;
-static BOOL isDistanceEnabled = YES;
-static BOOL isHPEnabled = YES;
-static BOOL isHealthBarEnabled = YES;
-static BOOL isMinimapEnabled = YES;
-static BOOL isRadarEnabled = NO;
-static BOOL isMonsterESPEnabled = NO;
-
-static BOOL isAimbotEnabled = NO;
-static BOOL isFovEnabled = YES;
-static BOOL isAutoFireEnabled = NO;
-static BOOL isSkipKnockedEnabled = YES;
-static BOOL isSilentAimEnabled = NO;
-static BOOL isPredictionEnabled = NO;
-static BOOL isVisibilityCheckEnabled = YES;
-static float fovSize = 150.0f;
-static int aimTarget = 1;
-static int aimWhen = 0;
-static float aimSmoothness = 5.0f;
-
-static BOOL isGodMode = NO;
-static BOOL isGhostEnabled = NO;
-static BOOL isSpeedHack = NO;
-static BOOL isBypassEnabled = NO;
-static BOOL isFastMedkit = NO;
-static BOOL isNoRecoil = NO;
-static BOOL isNoSpread = NO;
-static BOOL isAntiBan = NO;
-static BOOL isWallHack = NO;
-
-static UIWindow *overlayWindow = nil;
-static UIView *espCanvas = nil;
-static CAShapeLayer *fovCircle = nil;
-static NSMutableArray *espLayers = nil;
-static CADisplayLink *displayLink = nil;
-static UIButton *menuButton = nil;
-static BOOL isMenuVisible = NO;
-
-// =====================================================================
-// ============================ HACK EXECUTE ===========================
+// HACK FUNCTIONS
 // =====================================================================
 static void doAimbot(PlayerInfo source, PlayerInfo target) {
     if (target.health <= 0) return;
-    if (isSkipKnockedEnabled && target.isKnocked) return;
-    if (aimWhen == 1 && !source.isFiring) return;
-    if (aimWhen == 2 && !source.isAiming) return;
-    if (isVisibilityCheckEnabled && !target.isVisible) return;
     
     float dist = calcDistance3D(source, target);
     if (dist < 0.1f || dist > fovSize) return;
@@ -527,16 +231,8 @@ static void doAimbot(PlayerInfo source, PlayerInfo target) {
     float yaw = -atan2f((target.x - source.x), (target.y - source.y)) * 180.0f / M_PI + 180.0f;
     
     uintptr_t playerAddr = getFFBaseAddress() + OFFSET_MAINPLAYER;
-    if (isSilentAimEnabled) {
-        // Silent aim - không xoay camera
-    } else {
-        writeFloatFF(playerAddr + OFFSET_MOUSE_X, yaw);
-        writeFloatFF(playerAddr + OFFSET_MOUSE_Y, pitch);
-    }
-    
-    if (isAutoFireEnabled) {
-        // Tự động bắn
-    }
+    writeFloatFF(playerAddr + OFFSET_MOUSE_X, yaw);
+    writeFloatFF(playerAddr + OFFSET_MOUSE_Y, pitch);
 }
 
 static void doGodMode(bool enable) {
@@ -544,9 +240,6 @@ static void doGodMode(bool enable) {
     if (enable) {
         uint32_t nop = 2341507216;
         writeIntFF(addr, nop);
-        addLog(@"🛡️ God Mode ON");
-    } else {
-        addLog(@"🛡️ God Mode OFF");
     }
 }
 
@@ -556,9 +249,6 @@ static void doGhostHack(bool enable) {
         uint32_t ghostOn[] = {0xE3A00000, 0xE12FFF1E};
         writeIntFF(addr, ghostOn[0]);
         writeIntFF(addr + 4, ghostOn[1]);
-        addLog(@"👻 Ghost Hack ON");
-    } else {
-        addLog(@"👻 Ghost Hack OFF");
     }
 }
 
@@ -568,9 +258,6 @@ static void doBypass(bool enable) {
         uint32_t retBytes[] = {0xE3A00001, 0xE12FFF1E};
         writeIntFF(addr, retBytes[0]);
         writeIntFF(addr + 4, retBytes[1]);
-        addLog(@"🔄 Bypass ON");
-    } else {
-        addLog(@"🔄 Bypass OFF");
     }
 }
 
@@ -579,496 +266,233 @@ static void doSpeedHack(bool enable) {
     if (enable) {
         float speed = 3.0f;
         writeFloatFF(addr, speed);
-        addLog(@"⚡ Speed Hack ON");
     } else {
         float speed = 1.0f;
         writeFloatFF(addr, speed);
-        addLog(@"⚡ Speed Hack OFF");
     }
 }
 
-static void doFastMedkit(bool enable) {
-    uintptr_t addr = getFFBaseAddress() + OFFSET_FAST_MEDKIT;
-    if (enable) {
-        float speed = 2.0f;
-        writeFloatFF(addr, speed);
-        addLog(@"💊 Fast Medkit ON");
-    } else {
-        float speed = 1.0f;
-        writeFloatFF(addr, speed);
-        addLog(@"💊 Fast Medkit OFF");
-    }
-}
-
-static void doNoRecoil(bool enable) {
-    addLog(@"🔫 No Recoil: %@", enable ? @"ON" : @"OFF");
-}
-
-static void doNoSpread(bool enable) {
-    addLog(@"🎯 No Spread: %@", enable ? @"ON" : @"OFF");
-}
-
-static void doWallHack(bool enable) {
-    addLog(@"🧱 Wall Hack: %@", enable ? @"ON" : @"OFF");
+// =====================================================================
+// CHECK KEY FIREBASE
+// =====================================================================
+static void checkKey(NSString *key) {
+    if (key.length == 0) return;
+    NSString *url = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { return; }
+            NSError *jsonError;
+            NSDictionary *keyData = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+            if (!keyData || [keyData isKindOfClass:[NSNull class]]) { return; }
+            NSString *user = keyData[@"username"] ? keyData[@"username"] : @"Khách hàng VIP";
+            NSTimeInterval expiration = [keyData[@"expiration"] doubleValue];
+            if (expiration < [[NSDate date] timeIntervalSince1970]) { return; }
+            isKeyValidated = YES;
+            currentUser = user;
+            expirationTime = expiration;
+            [[NSUserDefaults standardUserDefaults] setObject:key forKey:@"saved_key"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+        });
+    }];
+    [task resume];
 }
 
 // =====================================================================
-// ============================ MENU VIEW ==============================
+// MENU VIEW - UI ĐƠN GIẢN
 // =====================================================================
-@interface MainMenuViewController : UIViewController <UITabBarDelegate, UITableViewDelegate, UITableViewDataSource>
-@property (nonatomic, strong) UITabBar *tabBar;
-@property (nonatomic, strong) UIScrollView *scrollView;
-@property (nonatomic, strong) UIView *contentView;
-@property (nonatomic, strong) UILabel *userLabel;
-@property (nonatomic, strong) UILabel *timerLabel;
-@property (nonatomic, strong) UITextField *keyField;
-@property (nonatomic, strong) UITableView *logTable;
-@property (nonatomic, strong) NSMutableArray *logEntries;
-@property (nonatomic, strong) UILabel *versionLabel;
-@property (nonatomic, strong) UILabel *statusLabel;
-@property (nonatomic, strong) UIView *headerView;
-@property (nonatomic, strong) UIButton *closeBtn;
-@property (nonatomic, strong) UIActivityIndicatorView *loadingIndicator;
+@interface ModMenuView : UIView
 @end
 
-@implementation MainMenuViewController
+@implementation ModMenuView
 
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.96];
-    self.view.layer.cornerRadius = 20;
-    self.view.layer.borderWidth = 2;
-    self.view.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
-    self.logEntries = [NSMutableArray array];
-    [self setupUI];
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.95];
+        self.layer.cornerRadius = 16;
+        self.layer.borderWidth = 2;
+        self.layer.borderColor = [UIColor orangeColor].CGColor;
+        self.hidden = YES;
+        [self setupUI];
+    }
+    return self;
 }
 
 - (void)setupUI {
-    CGFloat w = self.view.bounds.size.width;
-    CGFloat h = self.view.bounds.size.height;
-    int y = 10;
+    CGFloat w = 300, h = 400;
+    CGFloat x = (self.superview.bounds.size.width - w) / 2;
+    CGFloat y = (self.superview.bounds.size.height - h) / 2;
+    self.frame = CGRectMake(x, y, w, h);
     
     // Header
-    self.headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 80)];
-    self.headerView.backgroundColor = [UIColor colorWithRed:0.0 green:0.1 blue:0.25 alpha:1.0];
-    [self.view addSubview:self.headerView];
-    
-    // Title
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(15, 12, w-80, 28)];
-    title.text = @"⚡ FFDARKSWORD";
-    title.textColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0];
-    title.font = [UIFont boldSystemFontOfSize:22];
-    [self.headerView addSubview:title];
-    
-    // Close button
-    self.closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.closeBtn.frame = CGRectMake(w-45, 12, 35, 30);
-    [self.closeBtn setTitle:@"✕" forState:UIControlStateNormal];
-    [self.closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [self.closeBtn addTarget:self action:@selector(closeMenu) forControlEvents:UIControlEventTouchUpInside];
-    [self.headerView addSubview:self.closeBtn];
-    
-    // Version
-    self.versionLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, 45, 200, 15)];
-    self.versionLabel.text = [NSString stringWithFormat:@"v%@ | Build %@", APP_VERSION, APP_BUILD];
-    self.versionLabel.textColor = [UIColor grayColor];
-    self.versionLabel.font = [UIFont systemFontOfSize:10];
-    [self.headerView addSubview:self.versionLabel];
-    
-    // Status
-    self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(w-160, 45, 140, 15)];
-    self.statusLabel.text = @"🟢 ESP Active";
-    self.statusLabel.textColor = [UIColor greenColor];
-    self.statusLabel.font = [UIFont systemFontOfSize:10];
-    self.statusLabel.textAlignment = NSTextAlignmentRight;
-    [self.headerView addSubview:self.statusLabel];
-    
-    // Loading indicator
-    self.loadingIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
-    self.loadingIndicator.frame = CGRectMake(w-60, 18, 20, 20);
-    self.loadingIndicator.hidesWhenStopped = YES;
-    [self.headerView addSubview:self.loadingIndicator];
-    
-    // ScrollView
-    self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 80, w, h-50-80)];
-    self.scrollView.showsVerticalScrollIndicator = NO;
-    [self.view addSubview:self.scrollView];
-    
-    UIView *content = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 850)];
-    [self.scrollView addSubview:content];
-    self.scrollView.contentSize = CGSizeMake(w, 850);
-    y = 10;
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, w-20, 30)];
+    title.text = @"⚡ FF MOD";
+    title.textColor = [UIColor orangeColor];
+    title.font = [UIFont boldSystemFontOfSize:18];
+    title.textAlignment = NSTextAlignmentCenter;
+    [self addSubview:title];
     
     // User info
-    self.userLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, y, w-30, 20)];
-    self.userLabel.text = @"👤 User: Chưa đăng nhập";
-    self.userLabel.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
-    self.userLabel.font = [UIFont systemFontOfSize:13];
-    [content addSubview:self.userLabel];
-    y += 28;
+    UILabel *userLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 45, w-20, 18)];
+    userLabel.text = @"👤 User: Chưa đăng nhập";
+    userLabel.textColor = [UIColor grayColor];
+    userLabel.font = [UIFont systemFontOfSize:11];
+    userLabel.tag = 1000;
+    [self addSubview:userLabel];
     
     // Timer
-    self.timerLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, y, w-30, 20)];
-    self.timerLabel.text = @"⏳ Hết hạn: --:--:--";
-    self.timerLabel.textColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.0 alpha:1.0];
-    self.timerLabel.font = [UIFont systemFontOfSize:13];
-    [content addSubview:self.timerLabel];
-    y += 35;
+    UILabel *timerLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 65, w-20, 18)];
+    timerLabel.text = @"⏳ Hết hạn: --:--:--";
+    timerLabel.textColor = [UIColor greenColor];
+    timerLabel.font = [UIFont systemFontOfSize:11];
+    timerLabel.tag = 1001;
+    [self addSubview:timerLabel];
     
     // Key input
-    UIView *keyContainer = [[UIView alloc] initWithFrame:CGRectMake(15, y, w-30, 40)];
-    keyContainer.backgroundColor = [UIColor colorWithWhite:0.12 alpha:1.0];
-    keyContainer.layer.cornerRadius = 10;
-    [content addSubview:keyContainer];
-    
-    self.keyField = [[UITextField alloc] initWithFrame:CGRectMake(15, 0, keyContainer.bounds.size.width-70, 40)];
-    self.keyField.backgroundColor = [UIColor clearColor];
-    self.keyField.textColor = [UIColor whiteColor];
-    self.keyField.placeholder = @"🔑 Nhập Key...";
-    self.keyField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:self.keyField.placeholder attributes:@{NSForegroundColorAttributeName: [UIColor grayColor]}];
-    [keyContainer addSubview:self.keyField];
+    UITextField *keyField = [[UITextField alloc] initWithFrame:CGRectMake(10, 90, w-60, 35)];
+    keyField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
+    keyField.textColor = [UIColor whiteColor];
+    keyField.placeholder = @"🔑 Nhập Key...";
+    keyField.layer.cornerRadius = 8;
+    keyField.tag = 1002;
+    [self addSubview:keyField];
     
     UIButton *keyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    keyBtn.frame = CGRectMake(keyContainer.bounds.size.width-55, 5, 45, 30);
+    keyBtn.frame = CGRectMake(w-45, 90, 35, 35);
     [keyBtn setTitle:@"✅" forState:UIControlStateNormal];
     keyBtn.backgroundColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.0 alpha:0.8];
     keyBtn.layer.cornerRadius = 8;
-    keyBtn.titleLabel.font = [UIFont systemFontOfSize:16];
     [keyBtn addTarget:self action:@selector(checkKeyAction) forControlEvents:UIControlEventTouchUpInside];
-    [keyContainer addSubview:keyBtn];
-    y += 50;
+    [self addSubview:keyBtn];
     
-    // Tab Bar
-    NSArray *tabTitles = @[@"ESP", @"AIM", @"HACK", @"LOG"];
-    NSArray *tabIcons = @[@"👁️", @"🎯", @"⚡", @"📋"];
+    // Separator
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(10, 135, w-20, 1)];
+    line.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1.0];
+    [self addSubview:line];
     
-    self.tabBar = [[UITabBar alloc] initWithFrame:CGRectMake(15, y, w-30, 44)];
-    self.tabBar.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
-    self.tabBar.tintColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0];
-    self.tabBar.unselectedItemTintColor = [UIColor grayColor];
-    self.tabBar.delegate = self;
-    self.tabBar.layer.cornerRadius = 10;
-    [content addSubview:self.tabBar];
+    // Switches
+    int yPos = 150;
+    [self addSwitch:@"👁️ ESP" y:&yPos tag:0];
+    [self addSwitch:@"📦 Box" y:&yPos tag:1];
+    [self addSwitch:@"📏 Line" y:&yPos tag:2];
+    [self addSwitch:@"🦴 Skeleton" y:&yPos tag:3];
+    [self addSwitch:@"🏷️ Name" y:&yPos tag:4];
+    [self addSwitch:@"📡 Distance" y:&yPos tag:5];
+    [self addSwitch:@"❤️ HP" y:&yPos tag:6];
+    [self addSwitch:@"🎯 Aimbot" y:&yPos tag:7];
+    [self addSwitch:@"🛡️ God Mode" y:&yPos tag:8];
+    [self addSwitch:@"⚡ Speed" y:&yPos tag:9];
+    [self addSwitch:@"👻 Ghost" y:&yPos tag:10];
+    [self addSwitch:@"🔄 Bypass" y:&yPos tag:11];
     
-    NSMutableArray *items = [NSMutableArray array];
-    for (int i = 0; i < tabTitles.count; i++) {
-        UITabBarItem *item = [[UITabBarItem alloc] initWithTitle:tabTitles[i] image:[self imageFromText:tabIcons[i] fontSize:18] tag:i];
-        [items addObject:item];
-    }
-    self.tabBar.items = items;
-    self.tabBar.selectedItem = items[0];
-    y += 54;
+    // FOV Slider
+    UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, yPos, 100, 30)];
+    fovLabel.text = @"FOV: 150";
+    fovLabel.textColor = [UIColor whiteColor];
+    fovLabel.font = [UIFont systemFontOfSize:12];
+    fovLabel.tag = 500;
+    [self addSubview:fovLabel];
     
-    // Content view
-    self.contentView = [[UIView alloc] initWithFrame:CGRectMake(15, y, w-30, 450)];
-    self.contentView.backgroundColor = [UIColor colorWithWhite:0.06 alpha:1.0];
-    self.contentView.layer.cornerRadius = 12;
-    [content addSubview:self.contentView];
-    y += 460;
+    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(110, yPos, 180, 30)];
+    fovSlider.minimumValue = 30;
+    fovSlider.maximumValue = 300;
+    fovSlider.value = 150;
+    fovSlider.tag = 501;
+    [fovSlider addTarget:self action:@selector(fovChanged:) forControlEvents:UIControlEventValueChanged];
+    [self addSubview:fovSlider];
+    yPos += 40;
     
-    // Log table
-    self.logTable = [[UITableView alloc] initWithFrame:CGRectMake(15, y, w-30, 300)];
-    self.logTable.backgroundColor = [UIColor colorWithWhite:0.06 alpha:1.0];
-    self.logTable.layer.cornerRadius = 12;
-    self.logTable.delegate = self;
-    self.logTable.dataSource = self;
-    self.logTable.separatorStyle = UITableViewCellSeparatorStyleNone;
-    self.logTable.hidden = YES;
-    [content addSubview:self.logTable];
-    
-    content.frame = CGRectMake(0, 0, w, y + 320);
-    self.scrollView.contentSize = CGSizeMake(w, y + 320);
-    
-    [self loadTab:0];
+    // Close button
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(30, yPos, w-60, 40);
+    [closeBtn setTitle:@"🔴 ĐÓNG APP" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    closeBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
+    closeBtn.layer.cornerRadius = 10;
+    [closeBtn addTarget:self action:@selector(closeApp) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:closeBtn];
 }
 
-- (UIImage *)imageFromText:(NSString *)text fontSize:(CGFloat)fontSize {
-    UIFont *font = [UIFont systemFontOfSize:fontSize];
-    CGSize size = [text sizeWithAttributes:@{NSFontAttributeName: font}];
-    UIGraphicsBeginImageContextWithOptions(size, NO, 0.0);
-    [text drawAtPoint:CGPointMake(0, 0) withAttributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: [UIColor whiteColor]}];
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    return image;
-}
-
-- (void)tabBar:(UITabBar *)tabBar didSelectItem:(UITabBarItem *)item {
-    [self loadTab:(int)item.tag];
-}
-
-- (void)loadTab:(int)idx {
-    for (UIView *v in self.contentView.subviews) [v removeFromSuperview];
-    self.logTable.hidden = YES;
-    
-    int y = 10;
-    if (idx == 0) {
-        // ESP Tab
-        [self addSwitch:self.contentView y:&y label:@"👁️ ESP" tag:0];
-        [self addSwitch:self.contentView y:&y label:@"📦 Box" tag:1];
-        [self addSwitch:self.contentView y:&y label:@"📦 Full Box" tag:2];
-        [self addSwitch:self.contentView y:&y label:@"🔲 Corner Box" tag:3];
-        [self addSwitch:self.contentView y:&y label:@"📏 Line" tag:4];
-        [self addSwitch:self.contentView y:&y label:@"🦴 Skeleton" tag:5];
-        [self addSwitch:self.contentView y:&y label:@"🏷️ Name" tag:6];
-        [self addSwitch:self.contentView y:&y label:@"📡 Distance" tag:7];
-        [self addSwitch:self.contentView y:&y label:@"❤️ HP" tag:8];
-        [self addSwitch:self.contentView y:&y label:@"📊 Health Bar" tag:9];
-        [self addSwitch:self.contentView y:&y label:@"🗺️ Minimap" tag:10];
-        [self addSwitch:self.contentView y:&y label:@"🔄 Radar" tag:11];
-        [self addSwitch:self.contentView y:&y label:@"👾 Monster" tag:12];
-    } else if (idx == 1) {
-        // AIM Tab
-        [self addSwitch:self.contentView y:&y label:@"🎯 Aimbot" tag:20];
-        [self addSwitch:self.contentView y:&y label:@"⭕ FOV Circle" tag:21];
-        [self addSwitch:self.contentView y:&y label:@"🔥 Auto Fire" tag:22];
-        [self addSwitch:self.contentView y:&y label:@"⏭️ Skip Knocked" tag:23];
-        [self addSwitch:self.contentView y:&y label:@"🤫 Silent Aim" tag:24];
-        [self addSwitch:self.contentView y:&y label:@"🔮 Prediction" tag:25];
-        [self addSwitch:self.contentView y:&y label:@"👁️ Visibility Check" tag:26];
-        
-        UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 80, 30)];
-        fovLabel.text = @"FOV: 150";
-        fovLabel.textColor = [UIColor whiteColor];
-        fovLabel.font = [UIFont systemFontOfSize:12];
-        fovLabel.tag = 500;
-        [self.contentView addSubview:fovLabel];
-        
-        UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(80, y, self.contentView.bounds.size.width-90, 30)];
-        fovSlider.minimumValue = 30;
-        fovSlider.maximumValue = 300;
-        fovSlider.value = 150;
-        fovSlider.tag = 501;
-        [fovSlider addTarget:self action:@selector(fovChanged:) forControlEvents:UIControlEventValueChanged];
-        [self.contentView addSubview:fovSlider];
-        y += 45;
-        
-        UILabel *smoothLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 80, 30)];
-        smoothLabel.text = @"Smooth: 5";
-        smoothLabel.textColor = [UIColor whiteColor];
-        smoothLabel.font = [UIFont systemFontOfSize:12];
-        smoothLabel.tag = 502;
-        [self.contentView addSubview:smoothLabel];
-        
-        UISlider *smoothSlider = [[UISlider alloc] initWithFrame:CGRectMake(80, y, self.contentView.bounds.size.width-90, 30)];
-        smoothSlider.minimumValue = 1;
-        smoothSlider.maximumValue = 20;
-        smoothSlider.value = 5;
-        smoothSlider.tag = 503;
-        [smoothSlider addTarget:self action:@selector(smoothChanged:) forControlEvents:UIControlEventValueChanged];
-        [self.contentView addSubview:smoothSlider];
-        y += 45;
-        
-        UILabel *targetLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 80, 30)];
-        targetLabel.text = @"Aim Target";
-        targetLabel.textColor = [UIColor whiteColor];
-        targetLabel.font = [UIFont systemFontOfSize:12];
-        [self.contentView addSubview:targetLabel];
-        
-        UISegmentedControl *targetSeg = [[UISegmentedControl alloc] initWithItems:@[@"Head", @"Neck", @"Body"]];
-        targetSeg.frame = CGRectMake(80, y, self.contentView.bounds.size.width-90, 30);
-        targetSeg.selectedSegmentIndex = aimTarget;
-        targetSeg.tag = 504;
-        [targetSeg addTarget:self action:@selector(targetChanged:) forControlEvents:UIControlEventValueChanged];
-        [self.contentView addSubview:targetSeg];
-        y += 45;
-        
-        UILabel *whenLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 80, 30)];
-        whenLabel.text = @"Aim When";
-        whenLabel.textColor = [UIColor whiteColor];
-        whenLabel.font = [UIFont systemFontOfSize:12];
-        [self.contentView addSubview:whenLabel];
-        
-        UISegmentedControl *whenSeg = [[UISegmentedControl alloc] initWithItems:@[@"Always", @"Firing", @"Scope"]];
-        whenSeg.frame = CGRectMake(80, y, self.contentView.bounds.size.width-90, 30);
-        whenSeg.selectedSegmentIndex = aimWhen;
-        whenSeg.tag = 505;
-        [whenSeg addTarget:self action:@selector(whenChanged:) forControlEvents:UIControlEventValueChanged];
-        [self.contentView addSubview:whenSeg];
-        y += 45;
-    } else if (idx == 2) {
-        // HACK Tab
-        [self addSwitch:self.contentView y:&y label:@"🛡️ God Mode" tag:40];
-        [self addSwitch:self.contentView y:&y label:@"👻 Ghost" tag:41];
-        [self addSwitch:self.contentView y:&y label:@"⚡ Speed" tag:42];
-        [self addSwitch:self.contentView y:&y label:@"🔄 Bypass" tag:43];
-        [self addSwitch:self.contentView y:&y label:@"💊 Fast Medkit" tag:44];
-        [self addSwitch:self.contentView y:&y label:@"🔫 No Recoil" tag:45];
-        [self addSwitch:self.contentView y:&y label:@"🎯 No Spread" tag:46];
-        [self addSwitch:self.contentView y:&y label:@"🛡️ Anti-Ban" tag:47];
-        [self addSwitch:self.contentView y:&y label:@"🧱 Wall Hack" tag:48];
-        
-        // Status
-        UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, y, self.contentView.bounds.size.width, 20)];
-        statusLabel.text = @"🟢 Anti-Ban: Active";
-        statusLabel.textColor = [UIColor greenColor];
-        statusLabel.font = [UIFont systemFontOfSize:11];
-        statusLabel.textAlignment = NSTextAlignmentCenter;
-        statusLabel.tag = 600;
-        [self.contentView addSubview:statusLabel];
-        y += 30;
-    } else if (idx == 3) {
-        // LOG Tab
-        self.logTable.hidden = NO;
-        [self.logTable reloadData];
-        [self loadLogs];
-    }
-}
-
-- (void)addSwitch:(UIView *)content y:(int *)y label:(NSString *)label tag:(int)tag {
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, *y, 150, 35)];
-    lbl.text = label;
+- (void)addSwitch:(NSString *)title y:(int *)y tag:(int)tag {
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, *y, 140, 30)];
+    lbl.text = title;
     lbl.textColor = [UIColor whiteColor];
     lbl.font = [UIFont systemFontOfSize:13];
-    [content addSubview:lbl];
+    [self addSubview:lbl];
     
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(content.bounds.size.width-60, *y, 50, 30)];
-    sw.onTintColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.8];
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(230, *y, 50, 30)];
+    sw.onTintColor = [UIColor orangeColor];
     sw.tag = tag;
-    if (tag < 13 || tag == 8 || tag == 9) sw.on = YES;
+    if (tag < 7) sw.on = YES;
     [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    [content addSubview:sw];
-    *y += 45;
+    [self addSubview:sw];
+    *y += 35;
 }
 
 - (void)switchChanged:(UISwitch *)sender {
     switch (sender.tag) {
         case 0: isEspEnabled = sender.on; break;
         case 1: isBoxEnabled = sender.on; break;
-        case 2: isFullBoxEnabled = sender.on; break;
-        case 3: isCornerBoxEnabled = sender.on; break;
-        case 4: isLineEnabled = sender.on; break;
-        case 5: isSkeletonEnabled = sender.on; break;
-        case 6: isNameEnabled = sender.on; break;
-        case 7: isDistanceEnabled = sender.on; break;
-        case 8: isHPEnabled = sender.on; break;
-        case 9: isHealthBarEnabled = sender.on; break;
-        case 10: isMinimapEnabled = sender.on; break;
-        case 11: isRadarEnabled = sender.on; break;
-        case 12: isMonsterESPEnabled = sender.on; break;
-        case 20: isAimbotEnabled = sender.on; break;
-        case 21: isFovEnabled = sender.on; break;
-        case 22: isAutoFireEnabled = sender.on; break;
-        case 23: isSkipKnockedEnabled = sender.on; break;
-        case 24: isSilentAimEnabled = sender.on; break;
-        case 25: isPredictionEnabled = sender.on; break;
-        case 26: isVisibilityCheckEnabled = sender.on; break;
-        case 40: isGodMode = sender.on; doGodMode(sender.on); break;
-        case 41: isGhostEnabled = sender.on; doGhostHack(sender.on); break;
-        case 42: isSpeedHack = sender.on; doSpeedHack(sender.on); break;
-        case 43: isBypassEnabled = sender.on; doBypass(sender.on); break;
-        case 44: isFastMedkit = sender.on; doFastMedkit(sender.on); break;
-        case 45: isNoRecoil = sender.on; doNoRecoil(sender.on); break;
-        case 46: isNoSpread = sender.on; doNoSpread(sender.on); break;
-        case 47: isAntiBan = sender.on; break;
-        case 48: isWallHack = sender.on; doWallHack(sender.on); break;
+        case 2: isLineEnabled = sender.on; break;
+        case 3: isSkeletonEnabled = sender.on; break;
+        case 4: isNameEnabled = sender.on; break;
+        case 5: isDistanceEnabled = sender.on; break;
+        case 6: isHPEnabled = sender.on; break;
+        case 7: isAimbotEnabled = sender.on; break;
+        case 8: isGodMode = sender.on; doGodMode(sender.on); break;
+        case 9: isSpeedHack = sender.on; doSpeedHack(sender.on); break;
+        case 10: isGhostEnabled = sender.on; doGhostHack(sender.on); break;
+        case 11: isBypassEnabled = sender.on; doBypass(sender.on); break;
     }
-    addLog([NSString stringWithFormat:@"🔄 %@: %@", 
-            sender.tag < 13 ? @"ESP" : (sender.tag < 27 ? @"AIM" : @"HACK"), 
-            sender.on ? @"ON" : @"OFF"]);
 }
 
 - (void)fovChanged:(UISlider *)sender {
     fovSize = sender.value;
-    UILabel *fovLabel = (UILabel *)[self.view viewWithTag:500];
+    UILabel *fovLabel = (UILabel *)[self viewWithTag:500];
     fovLabel.text = [NSString stringWithFormat:@"FOV: %.0f", sender.value];
 }
 
-- (void)smoothChanged:(UISlider *)sender {
-    aimSmoothness = sender.value;
-    UILabel *smoothLabel = (UILabel *)[self.view viewWithTag:502];
-    smoothLabel.text = [NSString stringWithFormat:@"Smooth: %.0f", sender.value];
-}
-
-- (void)targetChanged:(UISegmentedControl *)sender {
-    aimTarget = (int)sender.selectedSegmentIndex;
-    addLog([NSString stringWithFormat:@"🎯 Aim Target: %@", @[@"Head", @"Neck", @"Body"][aimTarget]]);
-}
-
-- (void)whenChanged:(UISegmentedControl *)sender {
-    aimWhen = (int)sender.selectedSegmentIndex;
-    addLog([NSString stringWithFormat:@"🎯 Aim When: %@", @[@"Always", @"Firing", @"Scope"][aimWhen]]);
-}
-
 - (void)checkKeyAction {
-    NSString *key = self.keyField.text;
+    UITextField *field = (UITextField *)[self viewWithTag:1002];
+    NSString *key = field.text;
     if (key.length > 0) {
-        addLog([NSString stringWithFormat:@"🔑 Checking key: %@", key]);
-        [self.loadingIndicator startAnimating];
-        checkLicenseKey(key);
-        self.keyField.text = @"";
+        checkKey(key);
+        field.text = @"";
     }
-}
-
-- (void)loadLogs {
-    // Load logs từ global
 }
 
 - (void)updateUserInfo {
-    self.userLabel.text = [NSString stringWithFormat:@"👤 User: %@", currentUser];
-    if (expirationTime > 0) {
-        NSTimeInterval remaining = expirationTime - [[NSDate date] timeIntervalSince1970];
-        if (remaining > 0) {
-            int d = (int)(remaining / 86400);
-            int h = (int)((remaining - d*86400) / 3600);
-            int m = (int)((remaining - d*86400 - h*3600) / 60);
-            int s = (int)(remaining - d*86400 - h*3600 - m*60);
-            self.timerLabel.text = [NSString stringWithFormat:@"⏳ Hết hạn: %d ngày %02d:%02d:%02d", d, h, m, s];
-            self.statusLabel.text = remaining > 86400 ? @"🟢 ESP Active" : (remaining > 3600 ? @"🟡 Sắp hết" : @"🔴 Sắp hết");
-            self.statusLabel.textColor = remaining > 86400 ? [UIColor greenColor] : (remaining > 3600 ? [UIColor yellowColor] : [UIColor redColor]);
-        } else {
-            self.timerLabel.text = @"⏳ Hết hạn: --:--:--";
-            self.statusLabel.text = @"🔴 Hết hạn";
-            self.statusLabel.textColor = [UIColor redColor];
-        }
+    UILabel *userLabel = (UILabel *)[self viewWithTag:1000];
+    userLabel.text = [NSString stringWithFormat:@"👤 User: %@", currentUser];
+    
+    UILabel *timerLabel = (UILabel *)[self viewWithTag:1001];
+    NSTimeInterval remaining = expirationTime - [[NSDate date] timeIntervalSince1970];
+    if (remaining > 0) {
+        int h = (int)(remaining / 3600);
+        int m = (int)((remaining - h*3600) / 60);
+        int s = (int)(remaining - h*3600 - m*60);
+        timerLabel.text = [NSString stringWithFormat:@"⏳ Hết hạn: %02d:%02d:%02d", h, m, s];
+    } else {
+        timerLabel.text = @"⏳ Hết hạn: --:--:--";
     }
-}
-
-- (void)closeMenu {
-    self.view.hidden = YES;
-    isMenuVisible = NO;
-    menuButton.hidden = NO;
 }
 
 - (void)closeApp {
-    addLog(@"🔴 App closed");
-    showToast(@"🔴 Đóng ứng dụng...");
     exit(0);
 }
 
-// TableView
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return logEntries.count;
-}
-
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"LogCell"];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"LogCell"];
-        cell.backgroundColor = [UIColor clearColor];
-        cell.textLabel.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
-        cell.textLabel.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
-        cell.textLabel.numberOfLines = 0;
-    }
-    cell.textLabel.text = logEntries[indexPath.row];
-    return cell;
-}
-
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return 22;
-}
-
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    [self.view endEditing:YES];
+    [self endEditing:YES];
 }
 
 @end
 
 // =====================================================================
-// ============================ OVERLAY VIEW CONTROLLER ================
+// OVERLAY VIEW CONTROLLER
 // =====================================================================
 @interface OverlayViewController : UIViewController
-@property (nonatomic, strong) MainMenuViewController *menuVC;
-@property (nonatomic, strong) UIButton *menuBtn;
+@property (nonatomic, strong) ModMenuView *menuView;
 @end
 
 @implementation OverlayViewController
@@ -1078,50 +502,30 @@ static void doWallHack(bool enable) {
     self.view.backgroundColor = [UIColor clearColor];
     espLayers = [NSMutableArray array];
     
-    logEntries = [NSMutableArray array];
-    
-    // Init exploit
-    init_kernel_exploit();
-    init_anti_cheat();
-    
-    addLog(@"⏳ [2/4] Đang chờ Free Fire...");
-    addLog(@"✅ [2/4] Free Fire pid=%d", getpid());
-    addLog(@"⏳ [3/4] Đang quét Unity...");
-    addLog(@"✅ [3/4] Unity OK");
-    addLog(@"✅ [4/4] ESP Active");
-    
     // ESP Canvas
     espCanvas = [[UIView alloc] initWithFrame:self.view.bounds];
     espCanvas.backgroundColor = [UIColor clearColor];
     espCanvas.userInteractionEnabled = NO;
     [self.view addSubview:espCanvas];
     
-    // Menu
-    self.menuVC = [[MainMenuViewController alloc] init];
-    self.menuVC.view.frame = CGRectMake(15, 40, self.view.bounds.size.width-30, self.view.bounds.size.height-70);
-    self.menuVC.view.hidden = YES;
-    [self addChildViewController:self.menuVC];
-    [self.view addSubview:self.menuVC.view];
-    [self.menuVC didMoveToParentViewController:self];
-    
     // Menu Button
-    self.menuBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.menuBtn.frame = CGRectMake(10, 50, 50, 50);
-    self.menuBtn.backgroundColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.9];
-    self.menuBtn.layer.cornerRadius = 25;
-    self.menuBtn.layer.shadowColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
-    self.menuBtn.layer.shadowOffset = CGSizeMake(0, 0);
-    self.menuBtn.layer.shadowRadius = 10;
-    self.menuBtn.layer.shadowOpacity = 0.8;
-    [self.menuBtn setTitle:@"⚡" forState:UIControlStateNormal];
-    self.menuBtn.titleLabel.font = [UIFont systemFontOfSize:24];
-    [self.menuBtn addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:self.menuBtn];
+    menuButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    menuButton.frame = CGRectMake(10, 50, 50, 50);
+    menuButton.backgroundColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9];
+    menuButton.layer.cornerRadius = 25;
+    [menuButton setTitle:@"⚡" forState:UIControlStateNormal];
+    menuButton.titleLabel.font = [UIFont systemFontOfSize:24];
+    [menuButton addTarget:self action:@selector(showMenu) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:menuButton];
+    
+    // Menu View
+    self.menuView = [[ModMenuView alloc] initWithFrame:self.view.bounds];
+    [self.view addSubview:self.menuView];
     
     // FOV Circle
     fovCircle = [CAShapeLayer layer];
     fovCircle.fillColor = [UIColor clearColor].CGColor;
-    fovCircle.strokeColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
+    fovCircle.strokeColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:0.5].CGColor;
     fovCircle.lineWidth = 1.5;
     [self.view.layer addSublayer:fovCircle];
     
@@ -1133,26 +537,21 @@ static void doWallHack(bool enable) {
     // Timer update user info
     [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(updateUI) userInfo:nil repeats:YES];
     
-    // Register overlay với SBSAccessibility
-    registerOverlay(self.view.window);
-    
     // Load saved key
     NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"saved_key"];
     if (savedKey) {
-        checkLicenseKey(savedKey);
+        checkKey(savedKey);
     }
-    
-    showToast(@"⚡ FFDarkSword v1.4.4 loaded!");
 }
 
 - (void)updateUI {
-    [self.menuVC updateUserInfo];
+    [self.menuView updateUserInfo];
 }
 
-- (void)toggleMenu {
-    self.menuVC.view.hidden = !self.menuVC.view.hidden;
-    isMenuVisible = !isMenuVisible;
-    self.menuBtn.hidden = isMenuVisible;
+- (void)showMenu {
+    self.menuView.hidden = NO;
+    isMenuVisible = YES;
+    menuButton.hidden = YES;
 }
 
 - (void)updateLoop {
@@ -1165,8 +564,6 @@ static void doWallHack(bool enable) {
     if (isGodMode) { doGodMode(YES); }
     if (isBypassEnabled) { doBypass(YES); }
     if (isSpeedHack) { doSpeedHack(YES); }
-    if (isFastMedkit) { doFastMedkit(YES); }
-    if (isWallHack) { doWallHack(YES); }
 }
 
 - (void)drawESP {
@@ -1181,8 +578,7 @@ static void doWallHack(bool enable) {
     CGSize screenSize = self.view.bounds.size;
     CGPoint center = CGPointMake(screenSize.width/2, screenSize.height/2);
     
-    // FOV Circle
-    if (isFovEnabled && isAimbotEnabled) {
+    if (isAimbotEnabled) {
         UIBezierPath *fovPath = [UIBezierPath bezierPathWithArcCenter:center radius:fovSize startAngle:0 endAngle:2*M_PI clockwise:YES];
         fovCircle.path = fovPath.CGPath;
         fovCircle.hidden = NO;
@@ -1197,7 +593,6 @@ static void doWallHack(bool enable) {
     for (int i = 0; i < count; i++) {
         PlayerInfo enemy = enemies[i];
         if (enemy.health <= 0 || enemy.isDead) continue;
-        if (isSkipKnockedEnabled && enemy.isKnocked) continue;
         
         CGPoint screenPos = worldToScreen(enemy.x, enemy.y, enemy.z, screenSize);
         if (screenPos.x < 0 || screenPos.y < 0) continue;
@@ -1206,29 +601,7 @@ static void doWallHack(bool enable) {
         CGRect box = CGRectMake(screenPos.x - boxSize/2, screenPos.y - boxSize, boxSize, boxSize);
         
         if (isLineEnabled) { [linePath moveToPoint:center]; [linePath addLineToPoint:screenPos]; }
-        
-        if (isBoxEnabled || isFullBoxEnabled) {
-            [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
-        }
-        if (isCornerBoxEnabled) {
-            float cornerSize = 10;
-            [boxPath moveToPoint:CGPointMake(box.origin.x, box.origin.y + cornerSize)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x, box.origin.y)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x + cornerSize, box.origin.y)];
-            
-            [boxPath moveToPoint:CGPointMake(box.origin.x + boxSize - cornerSize, box.origin.y)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y + cornerSize)];
-            
-            [boxPath moveToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y + boxSize - cornerSize)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y + boxSize)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x + boxSize - cornerSize, box.origin.y + boxSize)];
-            
-            [boxPath moveToPoint:CGPointMake(box.origin.x + cornerSize, box.origin.y + boxSize)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x, box.origin.y + boxSize)];
-            [boxPath addLineToPoint:CGPointMake(box.origin.x, box.origin.y + boxSize - cornerSize)];
-        }
-        
+        if (isBoxEnabled) { [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]]; }
         if (isSkeletonEnabled) {
             [skeletonPath moveToPoint:CGPointMake(box.origin.x, box.origin.y)];
             [skeletonPath addLineToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y + boxSize)];
@@ -1269,43 +642,12 @@ static void doWallHack(bool enable) {
             [espCanvas addSubview:label];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
         }
-        
-        if (isHealthBarEnabled) {
-            float healthPercent = (float)enemy.health / 100.0f;
-            CGRect hpRect = CGRectMake(screenPos.x - 20, screenPos.y - boxSize - 12, 40 * healthPercent, 3);
-            UIView *hpView = [[UIView alloc] initWithFrame:hpRect];
-            hpView.backgroundColor = healthPercent > 0.6 ? [UIColor greenColor] : (healthPercent > 0.3 ? [UIColor yellowColor] : [UIColor redColor]);
-            hpView.tag = 9996;
-            [espCanvas addSubview:hpView];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [hpView removeFromSuperview]; });
-        }
-        
-        if (isMinimapEnabled) {
-            // Minimap
-        }
-        
-        if (isRadarEnabled) {
-            UIView *radar = [[UIView alloc] initWithFrame:CGRectMake(screenPos.x - 15, screenPos.y - 15, 30, 30)];
-            radar.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
-            radar.layer.cornerRadius = 15;
-            radar.layer.borderWidth = 1;
-            radar.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
-            
-            UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(12, 12, 6, 6)];
-            dot.backgroundColor = [UIColor redColor];
-            dot.layer.cornerRadius = 3;
-            [radar addSubview:dot];
-            
-            radar.tag = 9995;
-            [espCanvas addSubview:radar];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [radar removeFromSuperview]; });
-        }
     }
     
     if (linePath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = linePath.CGPath;
-        layer.strokeColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
+        layer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
         layer.lineWidth = 0.8;
         layer.fillColor = [UIColor clearColor].CGColor;
         [espCanvas.layer addSublayer:layer];
@@ -1314,7 +656,7 @@ static void doWallHack(bool enable) {
     if (boxPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = boxPath.CGPath;
-        layer.strokeColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.8].CGColor;
+        layer.strokeColor = [UIColor redColor].CGColor;
         layer.lineWidth = 1.5;
         layer.fillColor = [UIColor clearColor].CGColor;
         [espCanvas.layer addSublayer:layer];
@@ -1339,9 +681,8 @@ static void doWallHack(bool enable) {
 @end
 
 // =====================================================================
-// ============================ CONSTRUCTOR ============================
+// CONSTRUCTOR
 // =====================================================================
-
 __attribute__((constructor)) static void init() {
     dispatch_async(dispatch_get_main_queue(), ^{
         overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
@@ -1349,7 +690,5 @@ __attribute__((constructor)) static void init() {
         overlayWindow.backgroundColor = [UIColor clearColor];
         overlayWindow.rootViewController = [[OverlayViewController alloc] init];
         overlayWindow.hidden = NO;
-        registerOverlay(overlayWindow);
-        showToast(@"⚡ FFDarkSword v1.4.4 loaded!");
     });
 }
