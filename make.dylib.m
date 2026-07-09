@@ -1,196 +1,194 @@
-// make.dylib.m
-// FPS Overlay tweak — hiển thị FPS thời gian thực trên màn hình
-// và cho phép bật/tắt từ xa qua một HTTP server cục bộ (điều khiển từ web UI).
-//
-// Build bằng Theos (xem Makefile đi kèm).
-
 #import <UIKit/UIKit.h>
-#import <QuartzCore/QuartzCore.h>
-#import <sys/socket.h>
-#import <netinet/in.h>
-#import <arpa/inet.h>
-#import <unistd.h>
-#import <pthread.h>
+#import <WebKit/WebKit.h>
 
-// ====== Cấu hình ======
-static const int kServerPort = 8123; // đổi nếu bị trùng cổng
+// === Chức năng mẫu ===
+static BOOL isFeatureEnabled = NO;
+static WKWebView *webView = nil;
+static UIView *overlayView = nil;
 
-// ====== Trạng thái toàn cục ======
-static UILabel *gFPSLabel = nil;
-static BOOL gOverlayEnabled = NO;
-static double gCurrentFPS = 0;
+// === HTML Dashboard nhúng sẵn ===
+static NSString *dashboardHTML() {
+    NSString *status = isFeatureEnabled ? @"🟢 Active" : @"🔴 Inactive";
+    NSString *btnText = isFeatureEnabled ? @"Turn OFF" : @"Turn ON";
+    NSString *btnAction = isFeatureEnabled ? @"stop" : @"start";
+    
+    return [NSString stringWithFormat:
+    @"<!DOCTYPE html>"
+    @"<html><head>"
+    @"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    @"<title>Dylib Control</title>"
+    @"<style>"
+    @"*{margin:0;padding:0;box-sizing:border-box}"
+    @"body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;"
+    @"background:linear-gradient(135deg,#667eea,#764ba2);"
+    @"color:#fff;display:flex;align-items:center;justify-content:center;"
+    @"min-height:100vh;padding:20px}"
+    @".card{background:rgba(255,255,255,0.15);backdrop-filter:blur(20px);"
+    @"border-radius:24px;padding:40px;width:100%%;max-width:400px;"
+    @"text-align:center;border:1px solid rgba(255,255,255,0.2)}"
+    @"h1{font-size:28px;margin-bottom:10px}"
+    @".sub{font-size:14px;opacity:0.8;margin-bottom:30px}"
+    @".status{padding:20px;border-radius:16px;font-size:22px;font-weight:600;"
+    @"margin-bottom:25px;transition:0.3s}"
+    @".on{background:rgba(46,204,113,0.3);border:2px solid #2ecc71}"
+    @".off{background:rgba(231,76,60,0.3);border:2px solid #e74c3c}"
+    @".btn{display:block;width:100%%;padding:16px;font-size:18px;"
+    @"font-weight:600;border:none;border-radius:14px;cursor:pointer;"
+    @"transition:0.3s;margin-bottom:12px}"
+    @".btn-on{background:#2ecc71;color:#fff}"
+    @".btn-off{background:#e74c3c;color:#fff}"
+    @".btn-close{background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.3)}"
+    @".btn:hover{transform:translateY(-2px);opacity:0.9}"
+    @".info{font-size:12px;margin-top:20px;opacity:0.5}"
+    @"</style>"
+    @"</head><body>"
+    @"<div class='card'>"
+    @"<h1>🎛 Dylib Controller</h1>"
+    @"<div class='sub'>Injected &amp; Running</div>"
+    @"<div class='status %@' id='status'>%@</div>"
+    @"<button class='btn btn-on' onclick='toggle(\"start\")' id='btnStart'>Turn ON</button>"
+    @"<button class='btn btn-off' onclick='toggle(\"stop\")' id='btnStop' style='display:none'>Turn OFF</button>"
+    @"<button class='btn btn-close' onclick='closePanel()'>Close Panel</button>"
+    @"<div class='info'>Device: %@ | iOS: %@</div>"
+    @"</div>"
+    @"<script>"
+    @"function toggle(action){"
+    @"window.location.href='dylib://'+action;"
+    @"}"
+    @"function closePanel(){"
+    @"window.location.href='dylib://close';"
+    @"}"
+    @"</script>"
+    @"</body></html>",
+    isFeatureEnabled ? @"on" : @"off",
+    status,
+    [[UIDevice currentDevice] name],
+    [[UIDevice currentDevice] systemVersion]];
+}
 
-#pragma mark - Bộ đo FPS
-
-@interface FPSMonitor : NSObject
-@property (nonatomic, strong) CADisplayLink *displayLink;
-@property (nonatomic, assign) NSInteger frameCount;
-@property (nonatomic, assign) NSTimeInterval lastTimestamp;
-- (void)start;
-- (void)stop;
+// === Xử lý navigation từ WebView ===
+@interface DylibWebViewNavDelegate : NSObject <WKNavigationDelegate>
 @end
 
-@implementation FPSMonitor
+@implementation DylibWebViewNavDelegate
 
-- (void)start {
-    if (self.displayLink) return;
-    self.frameCount = 0;
-    self.lastTimestamp = 0;
-    self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
-    [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-}
-
-- (void)stop {
-    [self.displayLink invalidate];
-    self.displayLink = nil;
-}
-
-- (void)tick:(CADisplayLink *)link {
-    if (self.lastTimestamp == 0) {
-        self.lastTimestamp = link.timestamp;
+- (void)webView:(WKWebView *)webView 
+decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction 
+decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    
+    NSURL *url = navigationAction.request.URL;
+    
+    if ([url.scheme isEqualToString:@"dylib"]) {
+        if ([url.host isEqualToString:@"start"]) {
+            isFeatureEnabled = YES;
+            NSLog(@"[Dylib] Feature ENABLED ✅");
+            [webView loadHTMLString:dashboardHTML() baseURL:nil];
+        } else if ([url.host isEqualToString:@"stop"]) {
+            isFeatureEnabled = NO;
+            NSLog(@"[Dylib] Feature DISABLED ❌");
+            [webView loadHTMLString:dashboardHTML() baseURL:nil];
+        } else if ([url.host isEqualToString:@"close"]) {
+            [UIView animateWithDuration:0.3 animations:^{
+                overlayView.alpha = 0;
+            } completion:^(BOOL finished) {
+                [overlayView removeFromSuperview];
+                overlayView = nil;
+                webView = nil;
+            }];
+        }
+        decisionHandler(WKNavigationActionPolicyCancel);
         return;
     }
-    self.frameCount++;
-    NSTimeInterval delta = link.timestamp - self.lastTimestamp;
-    if (delta >= 1.0) {
-        double fps = self.frameCount / delta;
-        self.frameCount = 0;
-        self.lastTimestamp = link.timestamp;
-        gCurrentFPS = fps;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            gFPSLabel.text = [NSString stringWithFormat:@"%.0f FPS", fps];
-        });
-    }
+    decisionHandler(WKNavigationActionPolicyAllow);
 }
 
 @end
 
-static FPSMonitor *gMonitor = nil;
+// === Hook UIApplication để hiển thị WebView ===
+%hook UIApplication
 
-#pragma mark - Overlay UI
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    
+    // Gọi original
+    BOOL result = %orig;
+    
+    // Hiển thị dashboard sau 0.5s
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), 
+                   dispatch_get_main_queue(), ^{
+        [self showDylibDashboard];
+    });
+    
+    return result;
+}
 
-static void ensureOverlayCreated(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        if (!window) return;
+%end
 
-        if (!gFPSLabel) {
-            gFPSLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 44, 96, 26)];
-            gFPSLabel.textColor = [UIColor greenColor];
-            gFPSLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
-            gFPSLabel.font = [UIFont boldSystemFontOfSize:14];
-            gFPSLabel.textAlignment = NSTextAlignmentCenter;
-            gFPSLabel.layer.cornerRadius = 6;
-            gFPSLabel.layer.zPosition = CGFLOAT_MAX;
-            gFPSLabel.clipsToBounds = YES;
-            gFPSLabel.text = @"-- FPS";
-            gFPSLabel.hidden = YES;
-            gFPSLabel.windowLevel = UIWindowLevelStatusBar + 1;
-        }
-        [window addSubview:gFPSLabel];
-        [window bringSubviewToFront:gFPSLabel];
+// === Hook UIViewController để show dashboard trên mọi app ===
+%hook UIViewController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    
+    // Chỉ show 1 lần
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), 
+                       dispatch_get_main_queue(), ^{
+            [[UIApplication sharedApplication] showDylibDashboard];
+        });
     });
 }
 
-static void setOverlayEnabled(BOOL enabled) {
-    gOverlayEnabled = enabled;
-    ensureOverlayCreated();
-    dispatch_async(dispatch_get_main_queue(), ^{
-        gFPSLabel.hidden = !enabled;
-    });
-    if (enabled) {
-        if (!gMonitor) gMonitor = [FPSMonitor new];
-        [gMonitor start];
-    } else {
-        [gMonitor stop];
-    }
-}
+%end
 
-#pragma mark - HTTP control server (localhost)
-// Web UI gọi:
-//   GET /fps          -> {"fps": 60, "enabled": true}
-//   GET /toggle?on=1  -> bật overlay
-//   GET /toggle?on=0  -> tắt overlay
+// === Category để show dashboard ===
+@interface UIApplication (DylibControl)
+- (void)showDylibDashboard;
+@end
 
-static NSString *jsonStatus(void) {
-    return [NSString stringWithFormat:@"{\"fps\":%.1f,\"enabled\":%@}",
-            gCurrentFPS, gOverlayEnabled ? @"true" : @"false"];
-}
+@implementation UIApplication (DylibControl)
 
-static void handleClient(int clientSocket) {
-    char buffer[1024] = {0};
-    ssize_t n = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
-    if (n <= 0) { close(clientSocket); return; }
-
-    NSString *request = [NSString stringWithUTF8String:buffer];
-    NSString *body = nil;
-
-    if ([request containsString:@"GET /fps"]) {
-        body = jsonStatus();
-    } else if ([request containsString:@"GET /toggle"]) {
-        BOOL on = [request containsString:@"on=1"];
-        setOverlayEnabled(on);
-        body = jsonStatus();
-    } else {
-        body = @"{\"error\":\"not_found\"}";
-    }
-
-    NSString *response = [NSString stringWithFormat:
-        @"HTTP/1.1 200 OK\r\n"
-        "Content-Type: application/json\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        "Content-Length: %lu\r\n"
-        "Connection: close\r\n\r\n%@",
-        (unsigned long)[body lengthOfBytesUsingEncoding:NSUTF8StringEncoding], body];
-
-    const char *utf8 = [response UTF8String];
-    send(clientSocket, utf8, strlen(utf8), 0);
-    close(clientSocket);
-}
-
-static void *serverLoop(void *arg) {
-    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket < 0) return NULL;
-
-    int opt = 1;
-    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(kServerPort);
-
-    if (bind(serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(serverSocket);
-        return NULL;
-    }
-    if (listen(serverSocket, 8) < 0) {
-        close(serverSocket);
-        return NULL;
-    }
-
-    while (1) {
-        struct sockaddr_in clientAddr;
-        socklen_t clientLen = sizeof(clientAddr);
-        int clientSocket = accept(serverSocket, (struct sockaddr *)&clientAddr, &clientLen);
-        if (clientSocket >= 0) {
-            handleClient(clientSocket);
+- (void)showDylibDashboard {
+    if (overlayView) return;
+    
+    // Lấy window chính
+    UIWindow *keyWindow = nil;
+    if (@available(iOS 13.0, *)) {
+        NSSet<UIScene *> *scenes = [UIApplication sharedApplication].connectedScenes;
+        for (UIWindowScene *scene in scenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                keyWindow = scene.windows.firstObject;
+                break;
+            }
         }
+    } else {
+        keyWindow = [UIApplication sharedApplication].keyWindow;
     }
-    return NULL;
+    
+    if (!keyWindow) return;
+    
+    // Tạo overlay
+    overlayView = [[UIView alloc] initWithFrame:keyWindow.bounds];
+    overlayView.backgroundColor = [UIColor clearColor];
+    
+    // WKWebView configuration
+    WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+    webView = [[WKWebView alloc] initWithFrame:overlayView.bounds configuration:config];
+    webView.navigationDelegate = [[DylibWebViewNavDelegate alloc] init];
+    webView.backgroundColor = [UIColor clearColor];
+    webView.opaque = NO;
+    webView.scrollView.bounces = NO;
+    
+    [webView loadHTMLString:dashboardHTML() baseURL:nil];
+    
+    [overlayView addSubview:webView];
+    [keyWindow addSubview:overlayView];
+    
+    // Animation fade in
+    overlayView.alpha = 0;
+    [UIView animateWithDuration:0.3 animations:^{
+        overlayView.alpha = 1;
+    }];
 }
 
-static void startHTTPServer(void) {
-    pthread_t thread;
-    pthread_create(&thread, NULL, serverLoop, NULL);
-    pthread_detach(thread);
-}
-
-#pragma mark - Entry point
-
-__attribute__((constructor))
-static void tweakInit(void) {
-    ensureOverlayCreated();
-    startHTTPServer();
-}
+@end
