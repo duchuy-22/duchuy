@@ -164,7 +164,6 @@ static PlayerInfo getEnemyInfo(uintptr_t enemyAddr) {
 static void getAllEnemies(PlayerInfo *enemies, int *count) {
     *count = 0;
     uintptr_t enemyBase = getFFBaseAddress() + OFFSET_ENEMYPLAYER;
-    
     for (int i = 4; i <= 128; i += 4) {
         uintptr_t addr = enemyBase + i;
         PlayerInfo enemy = getEnemyInfo(addr);
@@ -187,15 +186,12 @@ static PlayerInfo findClosestEnemy(PlayerInfo source) {
     PlayerInfo enemies[32];
     int count = 0;
     getAllEnemies(enemies, &count);
-    
     if (count == 0) {
         PlayerInfo empty = {0};
         return empty;
     }
-    
     PlayerInfo closest = enemies[0];
     float minDist = calcDistance3D(source, closest);
-    
     for (int i = 1; i < count; i++) {
         float dist = calcDistance3D(source, enemies[i]);
         if (dist < minDist) {
@@ -207,7 +203,6 @@ static PlayerInfo findClosestEnemy(PlayerInfo source) {
 }
 
 static CGPoint worldToScreen(float x, float y, float z, CGSize screenSize) {
-    // Cần camera matrix cho chính xác
     return CGPointMake(x + 100, y + 100);
 }
 
@@ -217,13 +212,10 @@ static CGPoint worldToScreen(float x, float y, float z, CGSize screenSize) {
 static void doAimbot(PlayerInfo source, PlayerInfo target) {
     if (target.health <= 0) return;
     if (!isAimThroughWall && !target.isVisible) return;
-    
     float dist = calcDistance3D(source, target);
     if (dist < 0.1f || dist > fovSize) return;
-    
     float pitch = asinf((target.z - source.z) / dist) * 180.0f / M_PI;
     float yaw = -atan2f((target.x - source.x), (target.y - source.y)) * 180.0f / M_PI + 180.0f;
-    
     uintptr_t playerAddr = getFFBaseAddress() + OFFSET_MAINPLAYER;
     writeFloatFF(playerAddr + OFFSET_MOUSE_X, yaw);
     writeFloatFF(playerAddr + OFFSET_MOUSE_Y, pitch);
@@ -272,11 +264,7 @@ static void sendToWeb(NSString *jsonString) {
 }
 
 static void updateWebSwitch(NSString *name, BOOL value) {
-    NSDictionary *msg = @{
-        @"type": @"updateSwitch",
-        @"name": name,
-        @"value": @(value)
-    };
+    NSDictionary *msg = @{@"type": @"updateSwitch", @"name": name, @"value": @(value)};
     NSError *error;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msg options:0 error:&error];
     if (!error) {
@@ -293,10 +281,7 @@ static void updateTimeRemaining() {
             isKeyValidated = NO;
             [countdownTimer invalidate];
             countdownTimer = nil;
-            NSDictionary *msg = @{
-                @"type": @"keyStatus",
-                @"text": @"⏰ Key đã hết hạn!"
-            };
+            NSDictionary *msg = @{@"type": @"keyStatus", @"text": @"⏰ Key đã hết hạn!"};
             NSError *error;
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msg options:0 error:&error];
             if (!error) {
@@ -305,20 +290,11 @@ static void updateTimeRemaining() {
             }
             return;
         }
-        
         int days = (int)(remaining / 86400);
         int hours = (int)((remaining - days * 86400) / 3600);
         int minutes = (int)((remaining - days * 86400 - hours * 3600) / 60);
         int seconds = (int)(remaining - days * 86400 - hours * 3600 - minutes * 60);
-        
-        NSDictionary *msg = @{
-            @"type": @"updateTime",
-            @"days": @(days),
-            @"hours": @(hours),
-            @"minutes": @(minutes),
-            @"seconds": @(seconds),
-            @"user": currentUser
-        };
+        NSDictionary *msg = @{@"type": @"updateTime", @"days": @(days), @"hours": @(hours), @"minutes": @(minutes), @"seconds": @(seconds), @"user": currentUser};
         NSError *error;
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msg options:0 error:&error];
         if (!error) {
@@ -329,7 +305,7 @@ static void updateTimeRemaining() {
 }
 
 // =====================================================================
-// VIEW CONTROLLER - LOAD HTML TỪ FILE
+// VIEW CONTROLLER
 // =====================================================================
 @interface OverlayViewController : UIViewController <WKNavigationDelegate, WKScriptMessageHandler>
 @end
@@ -341,14 +317,12 @@ static void updateTimeRemaining() {
     self.view.backgroundColor = [UIColor clearColor];
     espLayers = [NSMutableArray array];
     
-    // ESP Canvas
     espCanvas = [[UIView alloc] initWithFrame:self.view.bounds];
     espCanvas.backgroundColor = [UIColor clearColor];
     espCanvas.userInteractionEnabled = NO;
     espCanvas.tag = 999;
     [self.view addSubview:espCanvas];
     
-    // WebView Menu
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     WKUserContentController *contentController = [[WKUserContentController alloc] init];
     [contentController addScriptMessageHandler:self name:@"toggle"];
@@ -368,10 +342,9 @@ static void updateTimeRemaining() {
     webView.navigationDelegate = self;
     [self.view addSubview:webView];
     
-    // LOAD HTML TỪ FILE (menu.html)
-    [self loadHTMLFromFile];
+    // Load HTML từ file
+    [self loadHTML];
     
-    // Menu Button
     UIButton *menuBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     menuBtn.frame = CGRectMake(10, 50, 50, 50);
     menuBtn.backgroundColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9];
@@ -380,7 +353,6 @@ static void updateTimeRemaining() {
     [menuBtn addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:menuBtn];
     
-    // Close Button
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     closeBtn.frame = CGRectMake(self.view.bounds.size.width - 60, 50, 50, 50);
     closeBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
@@ -389,22 +361,18 @@ static void updateTimeRemaining() {
     [closeBtn addTarget:self action:@selector(closeApp) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:closeBtn];
     
-    // FOV Circle
     fovCircle = [CAShapeLayer layer];
     fovCircle.fillColor = [UIColor clearColor].CGColor;
     fovCircle.strokeColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:0.5].CGColor;
     fovCircle.lineWidth = 1.5;
     [self.view.layer addSublayer:fovCircle];
     
-    // Timer cập nhật thời gian mỗi giây
     [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(updateTime) userInfo:nil repeats:YES];
     
-    // CADisplayLink - Vẽ ESP 25fps
     displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(updateLoop)];
     displayLink.preferredFramesPerSecond = 25;
     [displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     
-    // Load key đã lưu
     NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"saved_key"];
     if (savedKey) {
         [self checkKey:savedKey];
@@ -415,29 +383,38 @@ static void updateTimeRemaining() {
     updateTimeRemaining();
 }
 
-// ====== LOAD HTML TỪ FILE ======
-- (void)loadHTMLFromFile {
-    // Thử load từ bundle
-    NSString *htmlPath = [[NSBundle mainBundle] pathForResource:@"menu" ofType:@"html"];
-    if (htmlPath) {
-        NSURL *url = [NSURL fileURLWithPath:htmlPath];
-        [webView loadFileURL:url allowingReadAccessToURL:url];
-        NSLog(@"✅ Loaded menu.html from bundle");
-        return;
+// ====== LOAD HTML ======
+- (void)loadHTML {
+    @try {
+        // Thử load từ bundle
+        NSString *htmlPath = [[NSBundle mainBundle] pathForResource:@"menu" ofType:@"html"];
+        if (htmlPath) {
+            NSURL *url = [NSURL fileURLWithPath:htmlPath];
+            [webView loadFileURL:url allowingReadAccessToURL:url];
+            NSLog(@"✅ Loaded menu.html from bundle");
+            return;
+        }
+        // Thử load từ Documents
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *docPath = [paths objectAtIndex:0];
+        htmlPath = [docPath stringByAppendingPathComponent:@"menu.html"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:htmlPath]) {
+            NSURL *url = [NSURL fileURLWithPath:htmlPath];
+            [webView loadFileURL:url allowingReadAccessToURL:url];
+            NSLog(@"✅ Loaded menu.html from Documents");
+            return;
+        }
+        // Fallback HTML nhúng sẵn
+        NSLog(@"⚠️ menu.html not found, using embedded HTML");
+        [webView loadHTMLString:[self embeddedHTML] baseURL:nil];
+    } @catch (NSException *exception) {
+        NSLog(@"❌ Load HTML error: %@", exception);
+        [webView loadHTMLString:@"<html><body><h1>Error loading menu</h1></body></html>" baseURL:nil];
     }
-    
-    // Load từ Documents
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    NSString *docPath = [paths objectAtIndex:0];
-    htmlPath = [docPath stringByAppendingPathComponent:@"menu.html"];
-    if ([[NSFileManager defaultManager] fileExistsAtPath:htmlPath]) {
-        NSURL *url = [NSURL fileURLWithPath:htmlPath];
-        [webView loadFileURL:url allowingReadAccessToURL:url];
-        NSLog(@"✅ Loaded menu.html from Documents");
-        return;
-    }
-    
-    NSLog(@"❌ menu.html not found!");
+}
+
+- (NSString *)embeddedHTML {
+    return @"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#0a0a0f;color:#fff;font-family:'Segoe UI',sans-serif;padding:15px;height:100vh;overflow-y:auto;}.header{text-align:center;border-bottom:1px solid #ff6a00;padding-bottom:10px;margin-bottom:15px;}.header h1{color:#ff6a00;font-size:20px;}.header p{color:#888;font-size:11px;}.tab{display:flex;gap:5px;margin-bottom:15px;}.tab button{flex:1;padding:8px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#aaa;font-size:12px;cursor:pointer;}.tab button.active{background:#ff6a00;color:#fff;border-color:#ff6a00;}.section{display:none;}.section.active{display:block;}.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;}.toggle-row label{font-size:13px;color:#ddd;}.toggle-row input[type='range']{width:100px;}.switch{position:relative;width:44px;height:24px;background:#333;border-radius:12px;cursor:pointer;transition:0.3s;}.switch.on{background:#ff6a00;}.switch:after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:0.3s;}.switch.on:after{left:22px;}select{background:#1a1a2e;color:#fff;border:1px solid #333;padding:4px 8px;border-radius:4px;}.key-section{text-align:center;padding:10px 0;}.key-section input{width:80%;padding:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;color:#fff;text-align:center;font-size:14px;}.key-section button{margin-top:10px;padding:10px 30px;background:#ff6a00;border:none;border-radius:8px;color:#fff;font-size:14px;cursor:pointer;}.info{text-align:center;margin-top:15px;font-size:11px;color:#666;}.timer{text-align:center;padding:10px 0;font-size:14px;color:#2ecc71;}.timer span{color:#ff6a00;font-weight:bold;}.user-info{text-align:center;padding:5px 0;font-size:12px;color:#888;}</style></head><body><div class='header'><h1>⚡ FF MOD MENU</h1><p>ESP + Aimbot v2.0</p></div><div class='tab'><button class='active' onclick='showTab(0)'>ESP</button><button onclick='showTab(1)'>Aimbot</button><button onclick='showTab(2)'>Features</button><button onclick='showTab(3)'>Settings</button></div><div id='tab0' class='section active'><div class='toggle-row'><label>👁️ ESP</label><div class='switch on' onclick='toggleSwitch(this,\"esp\")'></div></div><div class='toggle-row'><label>📦 Box</label><div class='switch on' onclick='toggleSwitch(this,\"box\")'></div></div><div class='toggle-row'><label>📏 Line</label><div class='switch on' onclick='toggleSwitch(this,\"line\")'></div></div><div class='toggle-row'><label>🦴 Skeleton</label><div class='switch on' onclick='toggleSwitch(this,\"skeleton\")'></div></div><div class='toggle-row'><label>🏷️ Tên</label><div class='switch on' onclick='toggleSwitch(this,\"name\")'></div></div><div class='toggle-row'><label>❤️ Máu</label><div class='switch on' onclick='toggleSwitch(this,\"health\")'></div></div></div><div id='tab1' class='section'><div class='toggle-row'><label>🎯 Aimbot</label><div class='switch' onclick='toggleSwitch(this,\"aimbot\")'></div></div><div class='toggle-row'><label>⭕ Vòng FOV</label><div class='switch on' onclick='toggleSwitch(this,\"fovcircle\")'></div></div><div class='toggle-row'><label>📏 FOV Size: <span id='fovVal'>150</span></label><input type='range' min='30' max='300' value='150' oninput='updateFov(this.value)'></div><div class='toggle-row'><label>🎯 Aim Target</label><select id='aimTarget' onchange='updateAimTarget(this.value)'><option value='0'>Đầu</option><option value='1'>Cổ</option><option value='2' selected>Ngực</option><option value='3'>Body</option></select></div><div class='toggle-row'><label>🔒 Ghim xuyên tường</label><div class='switch' onclick='toggleSwitch(this,\"wall\")'></div></div><div class='toggle-row'><label>⚡ Bắn mới ghim</label><div class='switch on' onclick='toggleSwitch(this,\"always\")'></div></div></div><div id='tab2' class='section'><div class='toggle-row'><label>👻 Ghost Hack</label><div class='switch' onclick='toggleSwitch(this,\"ghost\")'></div></div><div class='toggle-row'><label>🛡️ God Mode</label><div class='switch' onclick='toggleSwitch(this,\"god\")'></div></div><div class='toggle-row'><label>⚡ Speed Hack</label><div class='switch' onclick='toggleSwitch(this,\"speed\")'></div></div><div class='toggle-row'><label>🔄 Bypass</label><div class='switch' onclick='toggleSwitch(this,\"bypass\")'></div></div></div><div id='tab3' class='section'><div class='user-info'>👤 User: <span id='userName'>Chưa đăng nhập</span></div><div class='timer'>⏳ Hết hạn: <span id='timeRemaining'>--:--:--</span></div><div class='key-section'><input type='text' id='keyInput' placeholder='🔑 Nhập Key...'><br><button onclick='checkKey()'>✅ KÍCH HOẠT</button><div style='margin-top:10px;font-size:12px;color:#888;' id='keyStatus'>Chưa kích hoạt</div></div><div style='text-align:center;margin-top:10px;'><button onclick='closeApp()' style='padding:10px 30px;background:#e74c3c;border:none;border-radius:8px;color:#fff;font-size:14px;cursor:pointer;'>🔴 ĐÓNG APP</button></div><div class='info'>⚡ Made by Anonymous | Overlay v2.0</div></div><script>function showTab(i){document.querySelectorAll('.section').forEach(el=>el.classList.remove('active'));document.getElementById('tab'+i).classList.add('active');document.querySelectorAll('.tab button').forEach((el,idx)=>{el.classList.toggle('active',idx===i);});}function toggleSwitch(el,name){el.classList.toggle('on');var value=el.classList.contains('on')?1:0;window.webkit.messageHandlers.toggle.postMessage({name:name,value:value});}function updateFov(v){document.getElementById('fovVal').innerText=v;window.webkit.messageHandlers.fov.postMessage({value:parseFloat(v)});}function updateAimTarget(v){window.webkit.messageHandlers.aimTarget.postMessage({value:parseInt(v)});}function checkKey(){var key=document.getElementById('keyInput').value;window.webkit.messageHandlers.keyCheck.postMessage({key:key});}function closeApp(){window.webkit.messageHandlers.closeApp.postMessage({});}function receiveFromDylib(msg){console.log('📥 Received:',msg);if(msg.type==='keyStatus'){document.getElementById('keyStatus').innerText=msg.text;}else if(msg.type==='updateTime'){document.getElementById('userName').innerText=msg.user;var time=msg.days+'d '+String(msg.hours).padStart(2,'0')+':'+String(msg.minutes).padStart(2,'0')+':'+String(msg.seconds).padStart(2,'0');document.getElementById('timeRemaining').innerText=time;}else if(msg.type==='updateSwitch'){var el=document.getElementById(msg.name+'Switch');if(el){if(msg.value){el.classList.add('on');}else{el.classList.remove('on');}}}else if(msg.type==='init'){for(var key in msg.data){var el=document.getElementById(key+'Switch');if(el){if(msg.data[key]){el.classList.add('on');}else{el.classList.remove('on');}}}}}</script></body></html>";
 }
 
 // ====== WEBVIEW DELEGATE ======
@@ -447,22 +424,13 @@ static void updateTimeRemaining() {
 
 - (void)sendAllStatesToWeb {
     NSDictionary *states = @{
-        @"esp": @(isEspEnabled),
-        @"box": @(isBoxEnabled),
-        @"line": @(isLineEnabled),
-        @"skeleton": @(isSkeletonEnabled),
-        @"name": @(isNameEnabled),
-        @"health": @(isHealthEnabled),
-        @"aimbot": @(isAimbotEnabled),
-        @"fovcircle": @(isFovCircleEnabled),
-        @"wall": @(isAimThroughWall),
-        @"always": @(isAlwaysAim),
-        @"ghost": @(isGhostEnabled),
-        @"god": @(isGodMode),
-        @"speed": @(isSpeedHack),
-        @"bypass": @(isBypassEnabled)
+        @"esp": @(isEspEnabled), @"box": @(isBoxEnabled), @"line": @(isLineEnabled),
+        @"skeleton": @(isSkeletonEnabled), @"name": @(isNameEnabled), @"health": @(isHealthEnabled),
+        @"aimbot": @(isAimbotEnabled), @"fovcircle": @(isFovCircleEnabled),
+        @"wall": @(isAimThroughWall), @"always": @(isAlwaysAim),
+        @"ghost": @(isGhostEnabled), @"god": @(isGodMode),
+        @"speed": @(isSpeedHack), @"bypass": @(isBypassEnabled)
     };
-    
     NSDictionary *msg = @{@"type": @"init", @"data": states};
     NSError *error;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:msg options:0 error:&error];
@@ -475,12 +443,10 @@ static void updateTimeRemaining() {
 // ====== WEBVIEW MESSAGE HANDLER ======
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     NSDictionary *data = message.body;
-    
     if ([message.name isEqualToString:@"toggle"]) {
         NSString *name = data[@"name"];
         int value = [data[@"value"] intValue];
         BOOL boolValue = (value == 1);
-        
         if ([name isEqualToString:@"esp"]) { isEspEnabled = boolValue; updateWebSwitch(name, boolValue); }
         else if ([name isEqualToString:@"box"]) { isBoxEnabled = boolValue; updateWebSwitch(name, boolValue); }
         else if ([name isEqualToString:@"line"]) { isLineEnabled = boolValue; updateWebSwitch(name, boolValue); }
@@ -515,38 +481,34 @@ static void updateTimeRemaining() {
         [self sendKeyStatus:@"⚠️ Vui lòng nhập Key!"];
         return;
     }
-    
     NSString *url = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
+    NSLog(@"🔍 Checking key: %@", url);
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
-    
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (error) { [self sendKeyStatus:@"❌ Lỗi kết nối!"]; return; }
-            
+            if (error) {
+                NSLog(@"❌ Network error: %@", error);
+                [self sendKeyStatus:@"❌ Lỗi mạng!"];
+                return;
+            }
             NSError *jsonError;
             NSDictionary *keyData = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
-            
             if (!keyData || [keyData isKindOfClass:[NSNull class]]) {
                 [self sendKeyStatus:@"❌ Key không tồn tại!"];
                 return;
             }
-            
             NSString *user = keyData[@"username"] ? keyData[@"username"] : @"Khách hàng VIP";
             NSTimeInterval expiration = [keyData[@"expiration"] doubleValue];
             NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-            
             if (expiration < now) {
                 [self sendKeyStatus:@"❌ Key đã hết hạn!"];
                 return;
             }
-            
             isKeyValidated = YES;
             currentUser = user;
             expirationTime = expiration;
-            
             [[NSUserDefaults standardUserDefaults] setObject:key forKey:@"saved_key"];
             [[NSUserDefaults standardUserDefaults] synchronize];
-            
             [self sendKeyStatus:@"✅ Kích hoạt thành công!"];
             [self enableAllFeatures];
             updateTimeRemaining();
@@ -566,78 +528,47 @@ static void updateTimeRemaining() {
 }
 
 - (void)enableAllFeatures {
-    isEspEnabled = YES;
-    isAimbotEnabled = YES;
-    isBoxEnabled = YES;
-    isLineEnabled = YES;
-    isSkeletonEnabled = YES;
-    isNameEnabled = YES;
-    isHealthEnabled = YES;
-    isFovCircleEnabled = YES;
-    isAimThroughWall = YES;
-    isAlwaysAim = YES;
+    isEspEnabled = YES; isAimbotEnabled = YES; isBoxEnabled = YES; isLineEnabled = YES;
+    isSkeletonEnabled = YES; isNameEnabled = YES; isHealthEnabled = YES;
+    isFovCircleEnabled = YES; isAimThroughWall = YES; isAlwaysAim = YES;
     [self sendAllStatesToWeb];
 }
 
 - (void)toggleMenu {
     webView.hidden = !webView.hidden;
-    if (!webView.hidden) {
-        [self sendAllStatesToWeb];
-        updateTimeRemaining();
-    }
+    if (!webView.hidden) { [self sendAllStatesToWeb]; updateTimeRemaining(); }
 }
 
-- (void)closeApp {
-    exit(0);
-}
+- (void)closeApp { exit(0); }
 
 // =====================================================================
 // UPDATE LOOP - VẼ ESP
 // =====================================================================
 - (void)updateLoop {
-    if (isEspEnabled) {
-        [self drawESP];
-    }
-    
+    if (isEspEnabled) { [self drawESP]; }
     if (isAimbotEnabled && isKeyValidated) {
         PlayerInfo player = getMainPlayerInfo();
         PlayerInfo target = findClosestEnemy(player);
-        if (target.health > 0) {
-            doAimbot(player, target);
-        }
+        if (target.health > 0) { doAimbot(player, target); }
     }
-    
-    if (isGodMode) {
-        doGodMode(YES);
-    }
+    if (isGodMode) { doGodMode(YES); }
 }
 
-// =====================================================================
-// DRAW ESP - BATCH VẼ TỐI ƯU (ĐÃ FIX LỖI)
-// =====================================================================
 - (void)drawESP {
     if (!isEspEnabled) return;
-    
-    for (CALayer *layer in espLayers) {
-        [layer removeFromSuperlayer];
-    }
+    for (CALayer *layer in espLayers) { [layer removeFromSuperlayer]; }
     [espLayers removeAllObjects];
     
     PlayerInfo player = getMainPlayerInfo();
-    PlayerInfo enemies[32];
-    int count = 0;
+    PlayerInfo enemies[32]; int count = 0;
     getAllEnemies(enemies, &count);
-    
     CGSize screenSize = self.view.bounds.size;
     CGPoint center = CGPointMake(screenSize.width/2, screenSize.height/2);
     
     if (isFovCircleEnabled && isAimbotEnabled) {
         UIBezierPath *fovPath = [UIBezierPath bezierPathWithArcCenter:center radius:fovSize startAngle:0 endAngle:2 * M_PI clockwise:YES];
-        fovCircle.path = fovPath.CGPath;
-        fovCircle.hidden = NO;
-    } else {
-        fovCircle.hidden = YES;
-    }
+        fovCircle.path = fovPath.CGPath; fovCircle.hidden = NO;
+    } else { fovCircle.hidden = YES; }
     
     UIBezierPath *linePath = [UIBezierPath bezierPath];
     UIBezierPath *boxPath = [UIBezierPath bezierPath];
@@ -648,29 +579,18 @@ static void updateTimeRemaining() {
     for (int i = 0; i < count; i++) {
         PlayerInfo enemy = enemies[i];
         if (enemy.health <= 0 || enemy.isDead) continue;
-        
         CGPoint screenPos = worldToScreen(enemy.x, enemy.y, enemy.z, screenSize);
         if (screenPos.x < 0 || screenPos.y < 0) continue;
-        
         float boxSize = 40.0;
         CGRect box = CGRectMake(screenPos.x - boxSize/2, screenPos.y - boxSize, boxSize, boxSize);
-        
-        if (isLineEnabled) {
-            [linePath moveToPoint:center];
-            [linePath addLineToPoint:screenPos];
-        }
-        
-        if (isBoxEnabled) {
-            [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
-        }
-        
+        if (isLineEnabled) { [linePath moveToPoint:center]; [linePath addLineToPoint:screenPos]; }
+        if (isBoxEnabled) { [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]]; }
         if (isSkeletonEnabled) {
             [skeletonPath moveToPoint:CGPointMake(box.origin.x, box.origin.y)];
             [skeletonPath addLineToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y + boxSize)];
             [skeletonPath moveToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y)];
             [skeletonPath addLineToPoint:CGPointMake(box.origin.x, box.origin.y + boxSize)];
         }
-        
         if (isNameEnabled) {
             UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 30, screenPos.y - boxSize - 20, 60, 15)];
             label.text = [NSString stringWithFormat:@"Enemy %d", i];
@@ -680,7 +600,6 @@ static void updateTimeRemaining() {
             label.tag = 9999;
             [nameLabels addObject:label];
         }
-        
         if (isHealthEnabled) {
             UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 20, screenPos.y - boxSize - 5, 40, 12)];
             label.text = [NSString stringWithFormat:@"❤️ %d", enemy.health];
@@ -692,60 +611,42 @@ static void updateTimeRemaining() {
         }
     }
     
-    // ====== VẼ BATCH LAYER - FIX HASPATH ======
-    
-    // Vẽ LINE - 1 layer duy nhất
     if (linePath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = linePath.CGPath;
         layer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
         layer.lineWidth = 0.8;
         layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer];
-        [espLayers addObject:layer];
+        [espCanvas.layer addSublayer:layer]; [espLayers addObject:layer];
     }
-    
-    // Vẽ BOX - 1 layer duy nhất
     if (boxPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = boxPath.CGPath;
         layer.strokeColor = [UIColor redColor].CGColor;
         layer.lineWidth = 1.5;
         layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer];
-        [espLayers addObject:layer];
+        [espCanvas.layer addSublayer:layer]; [espLayers addObject:layer];
     }
-    
-    // Vẽ SKELETON - 1 layer duy nhất
     if (skeletonPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = skeletonPath.CGPath;
         layer.strokeColor = [UIColor orangeColor].CGColor;
         layer.lineWidth = 1.0;
         layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer];
-        [espLayers addObject:layer];
+        [espCanvas.layer addSublayer:layer]; [espLayers addObject:layer];
     }
     
-    // NAME & HEALTH Labels
     for (UILabel *label in nameLabels) {
         [espCanvas addSubview:label];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [label removeFromSuperview];
-        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
     }
     for (UILabel *label in healthLabels) {
         [espCanvas addSubview:label];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [label removeFromSuperview];
-        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
     }
 }
 
-- (void)dealloc {
-    [displayLink invalidate];
-    displayLink = nil;
-}
+- (void)dealloc { [displayLink invalidate]; displayLink = nil; }
 
 @end
 
