@@ -13,17 +13,23 @@ jobs:
       run: |
         SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         
-        # Biên dịch dylib bằng Clang liên kết chính xác các thư viện hệ thống
+        # Biên dịch dylib bằng Clang liên kết chính xác TOÀN BỘ các thư viện hệ thống trong ảnh sếp gửi
         clang -dynamiclib -arch arm64 \
           -isysroot $SDK \
           -fobjc-arc \
           -miphoneos-version-min=13.0 \
           -framework UIKit \
           -framework Foundation \
+          -framework CoreFoundation \
           -framework CoreGraphics \
           -framework QuartzCore \
           -framework WebKit \
           -framework AVFoundation \
+          -framework AVKit \
+          -framework PhotosUI \
+          -framework SafariServices \
+          -framework Security \
+          -framework IOSurface \
           -undefined dynamic_lookup \
           -o GrannyModMenu.dylib make.dylib.m
           
