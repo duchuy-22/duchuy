@@ -9,7 +9,7 @@
 #endif
 
 // =====================================================================
-// OFFSET FF
+// OFFSET FF - MÀY ĐIỀN OFFSET THẬT VÀO ĐÂY
 // =====================================================================
 #define OFFSET_MAINPLAYER          0x10F4F4
 #define OFFSET_ENEMYPLAYER         0x10F4F8
@@ -64,8 +64,8 @@ static BOOL isDistanceEnabled = YES;
 static BOOL isNameEnabled = YES;
 static BOOL isAimbotEnabled = NO;
 static BOOL isFovEnabled = YES;
-static int aimTarget = 0; // 0:Head, 1:Body
-static int aimMode = 0; // 0:Always, 1:Firing
+static int aimTarget = 0;
+static int aimMode = 0;
 static float fovSize = 150.0f;
 static BOOL isGhostEnabled = NO;
 static BOOL isGodMode = NO;
@@ -252,7 +252,34 @@ static void doBypass(bool enable) {
 }
 
 // =====================================================================
-// MENU VIEW - UIKIT THUẦN (KHÔNG CẦN HTML)
+// CHECK KEY FIREBASE
+// =====================================================================
+static void checkKey(NSString *key) {
+    if (key.length == 0) return;
+    NSString *url = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { return; }
+            NSError *jsonError;
+            NSDictionary *keyData = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+            if (!keyData || [keyData isKindOfClass:[NSNull class]]) { return; }
+            NSString *user = keyData[@"username"] ? keyData[@"username"] : @"Khách hàng VIP";
+            NSTimeInterval expiration = [keyData[@"expiration"] doubleValue];
+            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+            if (expiration < now) { return; }
+            isKeyValidated = YES;
+            currentUser = user;
+            expirationTime = expiration;
+            [[NSUserDefaults standardUserDefaults] setObject:key forKey:@"saved_key"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+        });
+    }];
+    [task resume];
+}
+
+// =====================================================================
+// MENU VIEW - UIKIT THUẦN
 // =====================================================================
 @interface ModMenuView : UIView
 @end
@@ -265,10 +292,9 @@ static void doBypass(bool enable) {
         self.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.92];
         self.layer.cornerRadius = 16;
         self.layer.borderWidth = 2;
-        self.layer.borderColor = [UIColor colorWithRed:1.0 green:0.4 blue:0.0 alpha:1.0].CGColor;
+        self.layer.borderColor = [UIColor orangeColor].CGColor;
         self.clipsToBounds = YES;
         self.hidden = YES;
-        
         [self setupUI];
     }
     return self;
@@ -276,33 +302,29 @@ static void doBypass(bool enable) {
 
 - (void)setupUI {
     CGFloat w = 280, h = 400;
-    CGFloat x = (self.bounds.size.width - w) / 2;
-    CGFloat y = (self.bounds.size.height - h) / 2;
+    CGFloat x = (self.superview.bounds.size.width - w) / 2;
+    CGFloat y = (self.superview.bounds.size.height - h) / 2;
     self.frame = CGRectMake(x, y, w, h);
     
     // Header
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, w - 20, 30)];
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, w-20, 30)];
     title.text = @"⚡ FF MOD MENU";
-    title.textColor = [UIColor colorWithRed:1.0 green:0.4 blue:0.0 alpha:1.0];
+    title.textColor = [UIColor orangeColor];
     title.font = [UIFont boldSystemFontOfSize:18];
     title.textAlignment = NSTextAlignmentCenter;
     [self addSubview:title];
     
-    // Close button
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    closeBtn.frame = CGRectMake(w - 40, 5, 30, 30);
+    closeBtn.frame = CGRectMake(w-40, 5, 30, 30);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [closeBtn addTarget:self action:@selector(closeMenu) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:closeBtn];
     
     CGFloat yPos = 50;
-    CGFloat spacing = 40;
+    CGFloat spacing = 35;
     
     // ESP Section
-    [self addLabel:@"🎯 ESP" frame:CGRectMake(10, yPos, 100, 20) color:[UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:1.0]];
-    yPos += 25;
-    
     [self addSwitch:@"Box" y:&yPos spacing:spacing tag:100];
     [self addSwitch:@"Line" y:&yPos spacing:spacing tag:101];
     [self addSwitch:@"HP" y:&yPos spacing:spacing tag:102];
@@ -310,13 +332,10 @@ static void doBypass(bool enable) {
     [self addSwitch:@"Name" y:&yPos spacing:spacing tag:104];
     
     yPos += 10;
-    [self addLabel:@"🎯 AIM" frame:CGRectMake(10, yPos, 100, 20) color:[UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:1.0]];
-    yPos += 25;
-    
-    [self addSwitch:@"Enable Aim" y:&yPos spacing:spacing tag:200];
+    [self addSwitch:@"Aimbot" y:&yPos spacing:spacing tag:200];
     
     // FOV Slider
-    UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, yPos, 80, 30)];
+    UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, yPos, 50, 30)];
     fovLabel.text = @"FOV";
     fovLabel.textColor = [UIColor whiteColor];
     fovLabel.font = [UIFont systemFontOfSize:13];
@@ -324,54 +343,48 @@ static void doBypass(bool enable) {
     
     UILabel *fovVal = [[UILabel alloc] initWithFrame:CGRectMake(200, yPos, 60, 30)];
     fovVal.text = @"150";
-    fovVal.textColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:1.0];
-    fovVal.font = [UIFont systemFontOfSize:13];
+    fovVal.textColor = [UIColor orangeColor];
     fovVal.tag = 900;
     [self addSubview:fovVal];
     
-    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(60, yPos + 5, 130, 20)];
+    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(60, yPos+5, 130, 20)];
     fovSlider.minimumValue = 30;
     fovSlider.maximumValue = 300;
     fovSlider.value = 150;
     fovSlider.tag = 500;
     [fovSlider addTarget:self action:@selector(fovChanged:) forControlEvents:UIControlEventValueChanged];
     [self addSubview:fovSlider];
-    yPos += 35;
+    yPos += 40;
     
     // Aim Type
-    [self addSegmentedControl:@[@"Head", @"Body"] y:&yPos tag:300];
-    
-    // Aim Mode
-    [self addSegmentedControl:@[@"Always", @"Firing"] y:&yPos tag:301];
-    yPos += 10;
+    UISegmentedControl *aimType = [[UISegmentedControl alloc] initWithItems:@[@"Head", @"Body"]];
+    aimType.frame = CGRectMake(10, yPos, w-20, 30);
+    aimType.selectedSegmentIndex = 0;
+    aimType.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
+    aimType.selectedSegmentTintColor = [UIColor orangeColor];
+    [aimType setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor whiteColor]} forState:UIControlStateNormal];
+    aimType.tag = 300;
+    [aimType addTarget:self action:@selector(segChanged:) forControlEvents:UIControlEventValueChanged];
+    [self addSubview:aimType];
+    yPos += 40;
     
     // Features
-    [self addLabel:@"⚡ FEATURES" frame:CGRectMake(10, yPos, 150, 20) color:[UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:1.0]];
-    yPos += 25;
-    
-    [self addSwitch:@"Ghost" y:&yPos spacing:spacing tag:400];
-    [self addSwitch:@"God Mode" y:&yPos spacing:spacing tag:401];
+    [self addSwitch:@"God" y:&yPos spacing:spacing tag:400];
+    [self addSwitch:@"Ghost" y:&yPos spacing:spacing tag:401];
     [self addSwitch:@"Speed" y:&yPos spacing:spacing tag:402];
     [self addSwitch:@"Bypass" y:&yPos spacing:spacing tag:403];
+    
     yPos += 10;
     
     // Close App
     UIButton *closeAppBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeAppBtn.frame = CGRectMake(30, yPos, w - 60, 35);
+    closeAppBtn.frame = CGRectMake(30, yPos, w-60, 35);
     [closeAppBtn setTitle:@"🔴 Đóng App" forState:UIControlStateNormal];
     [closeAppBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     closeAppBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
     closeAppBtn.layer.cornerRadius = 8;
     [closeAppBtn addTarget:self action:@selector(closeApp) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:closeAppBtn];
-}
-
-- (void)addLabel:(NSString *)text frame:(CGRect)frame color:(UIColor *)color {
-    UILabel *label = [[UILabel alloc] initWithFrame:frame];
-    label.text = text;
-    label.textColor = color;
-    label.font = [UIFont boldSystemFontOfSize:14];
-    [self addSubview:label];
 }
 
 - (void)addSwitch:(NSString *)title y:(CGFloat *)y spacing:(CGFloat)spacing tag:(int)tag {
@@ -382,26 +395,12 @@ static void doBypass(bool enable) {
     [self addSubview:label];
     
     UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(200, *y, 50, 30)];
-    sw.onTintColor = [UIColor colorWithRed:1.0 green:0.4 blue:0.0 alpha:1.0];
+    sw.onTintColor = [UIColor orangeColor];
     sw.tag = tag;
     sw.on = YES;
     [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
     [self addSubview:sw];
     *y += spacing;
-}
-
-- (void)addSegmentedControl:(NSArray *)items y:(CGFloat *)y tag:(int)tag {
-    UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:items];
-    seg.frame = CGRectMake(10, *y, w - 20, 30);
-    seg.selectedSegmentIndex = 0;
-    seg.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    seg.selectedSegmentTintColor = [UIColor colorWithRed:1.0 green:0.4 blue:0.0 alpha:1.0];
-    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateNormal];
-    [seg setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateSelected];
-    seg.tag = tag;
-    [seg addTarget:self action:@selector(segChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:seg];
-    *y += 35;
 }
 
 - (void)switchChanged:(UISwitch *)sender {
@@ -412,8 +411,8 @@ static void doBypass(bool enable) {
         case 103: isDistanceEnabled = sender.on; break;
         case 104: isNameEnabled = sender.on; break;
         case 200: isAimbotEnabled = sender.on; break;
-        case 400: isGhostEnabled = sender.on; doGhostHack(sender.on); break;
-        case 401: isGodMode = sender.on; doGodMode(sender.on); break;
+        case 400: isGodMode = sender.on; doGodMode(sender.on); break;
+        case 401: isGhostEnabled = sender.on; doGhostHack(sender.on); break;
         case 402: isSpeedHack = sender.on; break;
         case 403: isBypassEnabled = sender.on; doBypass(sender.on); break;
     }
@@ -422,8 +421,6 @@ static void doBypass(bool enable) {
 - (void)segChanged:(UISegmentedControl *)sender {
     if (sender.tag == 300) {
         aimTarget = (int)sender.selectedSegmentIndex;
-    } else if (sender.tag == 301) {
-        aimMode = (int)sender.selectedSegmentIndex;
     }
 }
 
@@ -444,14 +441,13 @@ static void doBypass(bool enable) {
 }
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    // Đóng menu khi chạm ra ngoài
     [self closeMenu];
 }
 
 @end
 
 // =====================================================================
-// VIEW CONTROLLER CHÍNH
+// VIEW CONTROLLER
 // =====================================================================
 @interface OverlayViewController : UIViewController
 @property (nonatomic, strong) ModMenuView *menuView;
@@ -470,7 +466,7 @@ static void doBypass(bool enable) {
     espCanvas.userInteractionEnabled = NO;
     [self.view addSubview:espCanvas];
     
-    // Menu Button (Logo)
+    // Menu Button
     menuButton = [UIButton buttonWithType:UIButtonTypeCustom];
     menuButton.frame = CGRectMake(10, 50, 50, 50);
     menuButton.backgroundColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9];
@@ -499,7 +495,7 @@ static void doBypass(bool enable) {
     // Load saved key
     NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"saved_key"];
     if (savedKey) {
-        [self checkKey:savedKey];
+        checkKey(savedKey);
     }
 }
 
@@ -525,16 +521,19 @@ static void doBypass(bool enable) {
     [espLayers removeAllObjects];
     
     PlayerInfo player = getMainPlayerInfo();
-    PlayerInfo enemies[32]; int count = 0;
+    PlayerInfo enemies[32];
+    int count = 0;
     getAllEnemies(enemies, &count);
     CGSize screenSize = self.view.bounds.size;
     CGPoint center = CGPointMake(screenSize.width/2, screenSize.height/2);
     
     if (isFovEnabled && isAimbotEnabled) {
-        UIBezierPath *fovPath = [UIBezierPath bezierPathWithArcCenter:center radius:fovSize startAngle:0 endAngle:2 * M_PI clockwise:YES];
+        UIBezierPath *fovPath = [UIBezierPath bezierPathWithArcCenter:center radius:fovSize startAngle:0 endAngle:2*M_PI clockwise:YES];
         fovCircle.path = fovPath.CGPath;
         fovCircle.hidden = NO;
-    } else { fovCircle.hidden = YES; }
+    } else {
+        fovCircle.hidden = YES;
+    }
     
     UIBezierPath *linePath = [UIBezierPath bezierPath];
     UIBezierPath *boxPath = [UIBezierPath bezierPath];
@@ -552,37 +551,34 @@ static void doBypass(bool enable) {
         if (isBoxEnabled) { [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]]; }
         
         if (isNameEnabled) {
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 30, screenPos.y - boxSize - 20, 60, 15)];
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x-30, screenPos.y-boxSize-20, 60, 15)];
             label.text = [NSString stringWithFormat:@"Enemy %d", i];
             label.textColor = [UIColor whiteColor];
             label.font = [UIFont systemFontOfSize:9];
             label.textAlignment = NSTextAlignmentCenter;
-            label.tag = 9999;
             [espCanvas addSubview:label];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
         }
         
         if (isHPEnabled) {
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 20, screenPos.y - boxSize - 5, 40, 12)];
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x-20, screenPos.y-boxSize-5, 40, 12)];
             label.text = [NSString stringWithFormat:@"❤️ %d", enemy.health];
             label.textColor = enemy.health > 50 ? [UIColor greenColor] : [UIColor redColor];
             label.font = [UIFont systemFontOfSize:8];
             label.textAlignment = NSTextAlignmentCenter;
-            label.tag = 9998;
             [espCanvas addSubview:label];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
         }
         
         if (isDistanceEnabled) {
             float dist = calcDistance3D(player, enemy);
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x - 20, screenPos.y + boxSize + 2, 40, 12)];
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x-20, screenPos.y+boxSize+2, 40, 12)];
             label.text = [NSString stringWithFormat:@"%.0fm", dist];
             label.textColor = [UIColor yellowColor];
             label.font = [UIFont systemFontOfSize:8];
             label.textAlignment = NSTextAlignmentCenter;
-            label.tag = 9997;
             [espCanvas addSubview:label];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [label removeFromSuperview]; });
         }
     }
     
@@ -592,7 +588,8 @@ static void doBypass(bool enable) {
         layer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
         layer.lineWidth = 0.8;
         layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer]; [espLayers addObject:layer];
+        [espCanvas.layer addSublayer:layer];
+        [espLayers addObject:layer];
     }
     if (boxPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
@@ -600,38 +597,14 @@ static void doBypass(bool enable) {
         layer.strokeColor = [UIColor redColor].CGColor;
         layer.lineWidth = 1.5;
         layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer]; [espLayers addObject:layer];
+        [espCanvas.layer addSublayer:layer];
+        [espLayers addObject:layer];
     }
 }
 
 - (void)dealloc {
     [displayLink invalidate];
     displayLink = nil;
-}
-
-// ====== CHECK KEY FIREBASE ======
-- (void)checkKey:(NSString *)key {
-    if (key.length == 0) return;
-    NSString *url = [NSString stringWithFormat:@"%@/keys/%@.json", FIREBASE_DB_URL, key];
-    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (error) { return; }
-            NSError *jsonError;
-            NSDictionary *keyData = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
-            if (!keyData || [keyData isKindOfClass:[NSNull class]]) { return; }
-            NSString *user = keyData[@"username"] ? keyData[@"username"] : @"Khách hàng VIP";
-            NSTimeInterval expiration = [keyData[@"expiration"] doubleValue];
-            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-            if (expiration < now) { return; }
-            isKeyValidated = YES;
-            currentUser = user;
-            expirationTime = expiration;
-            [[NSUserDefaults standardUserDefaults] setObject:key forKey:@"saved_key"];
-            [[NSUserDefaults standardUserDefaults] synchronize];
-        });
-    }];
-    [task resume];
 }
 
 @end
