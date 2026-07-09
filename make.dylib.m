@@ -10,7 +10,7 @@
 #endif
 
 // =====================================================================
-// OFFSET FF
+// OFFSET FF - MÀY ĐIỀN OFFSET THẬT VÀO ĐÂY
 // =====================================================================
 #define OFFSET_MAINPLAYER          0x10F4F4
 #define OFFSET_ENEMYPLAYER         0x10F4F8
@@ -45,7 +45,7 @@
 #define OFFSET_BYPASS              0x3ab11ec
 
 // =====================================================================
-// FIREBASE CONFIG
+// FIREBASE
 // =====================================================================
 static NSString *const FIREBASE_DB_URL = @"https://duchuy-99a4f-default-rtdb.firebaseio.com";
 static NSString *const APP_ID = @"ff_v1";
@@ -329,7 +329,7 @@ static void updateTimeRemaining() {
 }
 
 // =====================================================================
-// VIEW CONTROLLER
+// VIEW CONTROLLER - LOAD HTML TỪ FILE
 // =====================================================================
 @interface OverlayViewController : UIViewController <WKNavigationDelegate, WKScriptMessageHandler>
 @end
@@ -368,7 +368,8 @@ static void updateTimeRemaining() {
     webView.navigationDelegate = self;
     [self.view addSubview:webView];
     
-    [self loadHTML];
+    // LOAD HTML TỪ FILE (menu.html)
+    [self loadHTMLFromFile];
     
     // Menu Button
     UIButton *menuBtn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -414,29 +415,29 @@ static void updateTimeRemaining() {
     updateTimeRemaining();
 }
 
-// ====== LOAD HTML ======
-- (void)loadHTML {
+// ====== LOAD HTML TỪ FILE ======
+- (void)loadHTMLFromFile {
+    // Thử load từ bundle
     NSString *htmlPath = [[NSBundle mainBundle] pathForResource:@"menu" ofType:@"html"];
     if (htmlPath) {
         NSURL *url = [NSURL fileURLWithPath:htmlPath];
         [webView loadFileURL:url allowingReadAccessToURL:url];
+        NSLog(@"✅ Loaded menu.html from bundle");
         return;
     }
     
+    // Load từ Documents
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *docPath = [paths objectAtIndex:0];
     htmlPath = [docPath stringByAppendingPathComponent:@"menu.html"];
     if ([[NSFileManager defaultManager] fileExistsAtPath:htmlPath]) {
         NSURL *url = [NSURL fileURLWithPath:htmlPath];
         [webView loadFileURL:url allowingReadAccessToURL:url];
+        NSLog(@"✅ Loaded menu.html from Documents");
         return;
     }
     
-    [webView loadHTMLString:[self embeddedHTML] baseURL:nil];
-}
-
-- (NSString *)embeddedHTML {
-    return @"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#0a0a0f;color:#fff;font-family:'Segoe UI',sans-serif;padding:15px;height:100vh;overflow-y:auto;}.header{text-align:center;border-bottom:1px solid #ff6a00;padding-bottom:10px;margin-bottom:15px;}.header h1{color:#ff6a00;font-size:20px;}.header p{color:#888;font-size:11px;}.tab{display:flex;gap:5px;margin-bottom:15px;}.tab button{flex:1;padding:8px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#aaa;font-size:12px;cursor:pointer;}.tab button.active{background:#ff6a00;color:#fff;border-color:#ff6a00;}.section{display:none;}.section.active{display:block;}.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e;}.toggle-row label{font-size:13px;color:#ddd;}.toggle-row input[type='range']{width:100px;}.switch{position:relative;width:44px;height:24px;background:#333;border-radius:12px;cursor:pointer;transition:0.3s;}.switch.on{background:#ff6a00;}.switch:after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:0.3s;}.switch.on:after{left:22px;}select{background:#1a1a2e;color:#fff;border:1px solid #333;padding:4px 8px;border-radius:4px;}.key-section{text-align:center;padding:10px 0;}.key-section input{width:80%;padding:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;color:#fff;text-align:center;font-size:14px;}.key-section button{margin-top:10px;padding:10px 30px;background:#ff6a00;border:none;border-radius:8px;color:#fff;font-size:14px;cursor:pointer;}.info{text-align:center;margin-top:15px;font-size:11px;color:#666;}.timer{text-align:center;padding:10px 0;font-size:14px;color:#2ecc71;}.timer span{color:#ff6a00;font-weight:bold;}.user-info{text-align:center;padding:5px 0;font-size:12px;color:#888;}</style></head><body><div class='header'><h1>⚡ FF MOD MENU</h1><p>ESP + Aimbot v2.0</p></div><div class='tab'><button class='active' onclick='showTab(0)'>ESP</button><button onclick='showTab(1)'>Aimbot</button><button onclick='showTab(2)'>Features</button><button onclick='showTab(3)'>Settings</button></div><div id='tab0' class='section active'><div class='toggle-row'><label>👁️ ESP</label><div class='switch on' onclick='toggleSwitch(this,\"esp\")'></div></div><div class='toggle-row'><label>📦 Box</label><div class='switch on' onclick='toggleSwitch(this,\"box\")'></div></div><div class='toggle-row'><label>📏 Line</label><div class='switch on' onclick='toggleSwitch(this,\"line\")'></div></div><div class='toggle-row'><label>🦴 Skeleton</label><div class='switch on' onclick='toggleSwitch(this,\"skeleton\")'></div></div><div class='toggle-row'><label>🏷️ Tên</label><div class='switch on' onclick='toggleSwitch(this,\"name\")'></div></div><div class='toggle-row'><label>❤️ Máu</label><div class='switch on' onclick='toggleSwitch(this,\"health\")'></div></div></div><div id='tab1' class='section'><div class='toggle-row'><label>🎯 Aimbot</label><div class='switch' onclick='toggleSwitch(this,\"aimbot\")'></div></div><div class='toggle-row'><label>⭕ Vòng FOV</label><div class='switch on' onclick='toggleSwitch(this,\"fovcircle\")'></div></div><div class='toggle-row'><label>📏 FOV Size: <span id='fovVal'>150</span></label><input type='range' min='30' max='300' value='150' oninput='updateFov(this.value)'></div><div class='toggle-row'><label>🎯 Aim Target</label><select id='aimTarget' onchange='updateAimTarget(this.value)'><option value='0'>Đầu</option><option value='1'>Cổ</option><option value='2' selected>Ngực</option><option value='3'>Body</option></select></div><div class='toggle-row'><label>🔒 Ghim xuyên tường</label><div class='switch' onclick='toggleSwitch(this,\"wall\")'></div></div><div class='toggle-row'><label>⚡ Bắn mới ghim</label><div class='switch on' onclick='toggleSwitch(this,\"always\")'></div></div></div><div id='tab2' class='section'><div class='toggle-row'><label>👻 Ghost Hack</label><div class='switch' onclick='toggleSwitch(this,\"ghost\")'></div></div><div class='toggle-row'><label>🛡️ God Mode</label><div class='switch' onclick='toggleSwitch(this,\"god\")'></div></div><div class='toggle-row'><label>⚡ Speed Hack</label><div class='switch' onclick='toggleSwitch(this,\"speed\")'></div></div><div class='toggle-row'><label>🔄 Bypass</label><div class='switch' onclick='toggleSwitch(this,\"bypass\")'></div></div></div><div id='tab3' class='section'><div class='user-info' id='userInfo'>👤 User: <span id='userName'>Chưa đăng nhập</span></div><div class='timer' id='timerDisplay'>⏳ Hết hạn: <span id='timeRemaining'>--:--:--</span></div><div class='key-section'><input type='text' id='keyInput' placeholder='🔑 Nhập Key...'><br><button onclick='checkKey()'>✅ KÍCH HOẠT</button><div style='margin-top:10px;font-size:12px;color:#888;' id='keyStatus'>Chưa kích hoạt</div></div><div style='text-align:center;margin-top:10px;'><button onclick='closeApp()' style='padding:10px 30px;background:#e74c3c;border:none;border-radius:8px;color:#fff;font-size:14px;cursor:pointer;'>🔴 ĐÓNG APP</button></div><div class='info'>⚡ Made by Anonymous | Overlay v2.0</div></div><script>function showTab(i){document.querySelectorAll('.section').forEach(el=>el.classList.remove('active'));document.getElementById('tab'+i).classList.add('active');document.querySelectorAll('.tab button').forEach((el,idx)=>{el.classList.toggle('active',idx===i);});}function toggleSwitch(el,name){el.classList.toggle('on');var value=el.classList.contains('on')?1:0;window.webkit.messageHandlers.toggle.postMessage({name:name,value:value});}function updateFov(v){document.getElementById('fovVal').innerText=v;window.webkit.messageHandlers.fov.postMessage({value:parseFloat(v)});}function updateAimTarget(v){window.webkit.messageHandlers.aimTarget.postMessage({value:parseInt(v)});}function checkKey(){var key=document.getElementById('keyInput').value;window.webkit.messageHandlers.keyCheck.postMessage({key:key});}function closeApp(){window.webkit.messageHandlers.closeApp.postMessage({});}function receiveFromDylib(msg){console.log('📥 Received:',msg);if(msg.type==='keyStatus'){document.getElementById('keyStatus').innerText=msg.text;}else if(msg.type==='updateTime'){document.getElementById('userName').innerText=msg.user;var time=msg.days+'d '+String(msg.hours).padStart(2,'0')+':'+String(msg.minutes).padStart(2,'0')+':'+String(msg.seconds).padStart(2,'0');document.getElementById('timeRemaining').innerText=time;}else if(msg.type==='updateSwitch'){var el=document.getElementById(msg.name+'Switch');if(el){if(msg.value){el.classList.add('on');}else{el.classList.remove('on');}}}}setTimeout(function(){window.webkit.messageHandlers.init.postMessage({});},500);</script></body></html>";
+    NSLog(@"❌ menu.html not found!");
 }
 
 // ====== WEBVIEW DELEGATE ======
@@ -612,7 +613,7 @@ static void updateTimeRemaining() {
 }
 
 // =====================================================================
-// DRAW ESP - BATCH VẼ TỐI ƯU
+// DRAW ESP - BATCH VẼ TỐI ƯU (ĐÃ FIX LỖI)
 // =====================================================================
 - (void)drawESP {
     if (!isEspEnabled) return;
@@ -691,7 +692,10 @@ static void updateTimeRemaining() {
         }
     }
     
-    if (linePath.hasPath) {
+    // ====== VẼ BATCH LAYER - FIX HASPATH ======
+    
+    // Vẽ LINE - 1 layer duy nhất
+    if (linePath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = linePath.CGPath;
         layer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
@@ -701,7 +705,8 @@ static void updateTimeRemaining() {
         [espLayers addObject:layer];
     }
     
-    if (boxPath.hasPath) {
+    // Vẽ BOX - 1 layer duy nhất
+    if (boxPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = boxPath.CGPath;
         layer.strokeColor = [UIColor redColor].CGColor;
@@ -711,7 +716,8 @@ static void updateTimeRemaining() {
         [espLayers addObject:layer];
     }
     
-    if (skeletonPath.hasPath) {
+    // Vẽ SKELETON - 1 layer duy nhất
+    if (skeletonPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = skeletonPath.CGPath;
         layer.strokeColor = [UIColor orangeColor].CGColor;
@@ -721,6 +727,7 @@ static void updateTimeRemaining() {
         [espLayers addObject:layer];
     }
     
+    // NAME & HEALTH Labels
     for (UILabel *label in nameLabels) {
         [espCanvas addSubview:label];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
