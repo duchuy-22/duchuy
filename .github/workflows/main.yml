@@ -1,11 +1,6 @@
-name: Build FF Mod
+name: Build dylib
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+on: [push]
 
 jobs:
   build:
@@ -15,22 +10,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Install Theos dependencies
-      run: |
-        brew install ldid xz
-        sudo ln -sf /usr/bin/ldid /usr/local/bin/ldid
-        sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-        
     - name: Build dylib
       run: |
         SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        if [ -z "$SDK" ]; then
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk")
-        fi
-        echo "Using SDK: $SDK"
-        
         clang -dynamiclib -arch arm64 \
-          -isysroot "$SDK" \
+          -isysroot $SDK \
           -fobjc-arc \
           -miphoneos-version-min=13.0 \
           -framework UIKit \
@@ -38,26 +22,11 @@ jobs:
           -framework Foundation \
           -framework CoreGraphics \
           -framework QuartzCore \
-          -framework Security \
           -undefined dynamic_lookup \
-          -O2 \
           -o FFMod.dylib make.dylib.m
-        
-        # Kiểm tra file đã tạo chưa
-        if [ -f "FFMod.dylib" ]; then
-          echo "✅ Build successful: FFMod.dylib"
-          ls -la FFMod.dylib
-        else
-          echo "❌ Build failed!"
-          exit 1
-        fi
           
-    - name: Upload dylib
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: FFMod
-        path: |
-          FFMod.dylib
-          menu.html
-          create_key.html
-        if-no-files-found: warn
+        path: FFMod.dylib
