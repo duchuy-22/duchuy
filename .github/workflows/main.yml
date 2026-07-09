@@ -1,23 +1,25 @@
-name: Build dylib
+name: Build iOS dylib
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
-      - name: Install clang
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm-dev libxml2-dev
-          
       - name: Build dylib
         run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           clang -dynamiclib -arch arm64 \
+            -isysroot "$SDK" \
             -fobjc-arc \
+            -miphoneos-version-min=13.0 \
             -framework UIKit \
             -framework WebKit \
             -framework Foundation \
@@ -26,7 +28,7 @@ jobs:
             -undefined dynamic_lookup \
             -o FFMod.dylib make.dylib.m
           
-      - name: Upload
+      - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
           name: FFMod
