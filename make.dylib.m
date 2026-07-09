@@ -30,6 +30,7 @@ static NSInteger frameCount = 0;
 static BOOL isFpsEnabled = NO;
 static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 
+// Khai báo Interface lớp điều khiển chính
 @interface HuyMenuController : UIViewController <WKNavigationDelegate>
 + (void)toggleMenuGlobal;
 + (void)changeBorderColorWithHex:(NSString *)hexColor;
@@ -37,30 +38,39 @@ static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 + (void)calculateFPS:(CADisplayLink *)link;
 @end
 
+// Khai báo Interface cầu nối Web-to-Native
+@interface HuyLooBridgeHandler : NSObject <WKScriptMessageHandler>
+@end
+
 // =====================================================================
 // CƠ CHẾ XOÁ SẠCH DỮ LIỆU CÀI ĐẶT & THOÁT APP AN TOÀN
 // =====================================================================
-static void wipeDataAndExit() {
+static void wipeDataAndExit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Xoá sạch toàn bộ cài đặt đã lưu của dylib
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"huy_saved_speaker_text"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"huy_saved_fps_state"];
         [[NSUserDefaults standardUserDefaults] synchronize];
         
+        // Dừng đo FPS
         if (displayLink) {
             [displayLink invalidate];
             displayLink = nil;
         }
+        
+        // Ẩn giao diện
         [overlayMenuWindow setHidden:YES];
         [floatingButtonWindow setHidden:YES];
         
+        // Thoát ứng dụng lập tức
         exit(0);
     });
 }
 
 // =====================================================================
-// GIAO DIỆN WEB HTML SIÊU LỎ CYBERPUNK (ĐÚNG KIỂU BO TRÒN)
+// GIAO DIỆN WEB HTML SIÊU LỎ CYBERPUNK (BO TRÒN GÓC ĐẸP ĐẼ)
 // =====================================================================
-static NSString* getLooHTMLContent() {
+static NSString* getLooHTMLContent(void) {
     return @""
     "<!DOCTYPE html>"
     "<html>"
@@ -145,11 +155,8 @@ static NSString* getLooHTMLContent() {
 }
 
 // =====================================================================
-// CẦU NỐI WEB-TO-NATIVE TƯƠNG TÁC THỰC TẾ
+// CẦU NỐI WEB-TO-NATIVE TƯƠNG TÁC THỰC TẾ 100%
 // =====================================================================
-@interface HuyLooBridgeHandler : NSObject <WKScriptMessageHandler>
-@end
-
 @implementation HuyLooBridgeHandler
 
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
@@ -169,7 +176,7 @@ static NSString* getLooHTMLContent() {
             savedSpeakerText = (NSString *)value;
             dispatch_async(dispatch_get_main_queue(), ^{
                 AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:savedSpeakerText];
-                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"];
+                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng Việt chuẩn
                 utterance.rate = 0.5;
                 AVSpeechSynthesizer *synthesizer = [[AVSpeechSynthesizer alloc] init];
                 [synthesizer speakUtterance:utterance];
@@ -214,10 +221,10 @@ static NSString* getLooHTMLContent() {
 @implementation HuyMenuController
 
 - (void)viewDidLoad {
-    [super XcodeHeader];
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
+    // Tạo nhãn đo FPS lơ lửng ngoài màn hình
     fpsLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 40, 80, 25)];
     fpsLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
     fpsLabel.textColor = [UIColor greenColor];
@@ -230,17 +237,17 @@ static NSString* getLooHTMLContent() {
     fpsLabel.hidden = YES;
     [self.view addSubview:fpsLabel];
     
-    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 310, 410)];
+    // Khung bo tròn viền chứa Menu Web
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 360, 480)];
     menuContainer.backgroundColor = [UIColor clearColor];
-    menuContainer.layer.borderWidth = 2.0;
-    menuContainer.layer.borderColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.8 alpha:1.0].CGColor;
-    menuContainer.layer.cornerRadius = 20;
     menuContainer.hidden = YES; 
     [self.view addSubview:menuContainer];
     
+    // Cử chỉ kéo thả di chuyển menu
     UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
     [menuContainer addGestureRecognizer:panDrag];
     
+    // Cấu hình cầu nối
     WKUserContentController *userContentController = [[WKUserContentController alloc] init];
     [userContentController addScriptMessageHandler:[[HuyLooBridgeHandler alloc] init] name:@"HuyLooBridge"];
     
@@ -299,15 +306,17 @@ static NSString* getLooHTMLContent() {
 
 + (void)changeBorderColorWithHex:(NSString *)hexColor {
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *cleanString = [hexColor stringByReplacingOccurrencesOfString:@"#" withString:@""];
-        unsigned int baseValue;
-        [[NSScanner scannerWithString:cleanString] scanHexInt:&baseValue];
-        float red = ((baseValue >> 16) & 0xFF) / 255.0f;
-        float green = ((baseValue >> 8) & 0xFF) / 255.0f;
-        float blue = ((baseValue) & 0xFF) / 255.0f;
+        NSString *cleanHex = [hexColor stringByReplacingOccurrencesOfString:@"#" withString:@""];
+        unsigned int rgbValue = 0;
+        NSScanner *scanner = [NSScanner scannerWithString:cleanHex];
+        [scanner scanHexInt:&rgbValue];
         
-        UIColor *newColor = [UIColor colorWithRed:red green:green blue:blue alpha:1.0];
-        menuContainer.layer.borderColor = newColor.CGColor;
+        float r = ((rgbValue & 0xFF0000) >> 16) / 255.0;
+        float g = ((rgbValue & 0x00FF00) >> 8) / 255.0;
+        float b = (rgbValue & 0x0000FF) / 255.0;
+        
+        menuWebView.layer.borderColor = [UIColor colorWithRed:r green:g blue:b alpha:1.0].CGColor;
+        menuWebView.layer.borderWidth = 2.0;
     });
 }
 
@@ -359,7 +368,7 @@ static NSString* getLooHTMLContent() {
 @end
 
 // =====================================================================
-// KHỞI CHẠY GIAO DIỆN & TẠO LOGO WHITE HAT DI ĐỘNG CHỐNG NUỐT CHẠM
+// KHỞI CHẠY GIAO DIỆN & TẠO LOGO WHITE HAT CHỐNG NUỐT CẢM ỨNG
 // =====================================================================
 @interface HuyMenuInitializer : NSObject
 + (void)tryInitializeUI;
@@ -386,6 +395,7 @@ static NSString* getLooHTMLContent() {
             }
         }
         
+        // 1. Tạo nút nổi Logo di động "White Hat" kéo thả
         if (@available(iOS 13.0, *)) {
             floatingButtonWindow = [[UIWindow alloc] initWithWindowScene:scene];
         } else {
@@ -420,6 +430,7 @@ static NSString* getLooHTMLContent() {
         [btnRootVC.view addSubview:floatingLogoBtn];
         floatingButtonWindow.hidden = NO;
 
+        // 2. Tạo cửa sổ vẽ đồ họa ngầm Passthrough Window
         if (@available(iOS 13.0, *)) {
             overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithWindowScene:scene];
         } else {
@@ -438,7 +449,7 @@ static NSString* getLooHTMLContent() {
 + (void)handleFloatingPan:(UIPanGestureRecognizer *)gesture {
     UIView *btn = gesture.view;
     CGPoint translation = [gesture translationInView:btn.superview];
-    if (gesture.state == UIGestureRecognizerStateChanged) {
+    if (gesture.state == UIGStateChanged || gesture.state == UIGestureRecognizerStateChanged) {
         floatingButtonWindow.center = CGPointMake(floatingButtonWindow.center.x + translation.x, floatingButtonWindow.center.y + translation.y);
         [gesture setTranslation:CGPointZero inView:btn.superview];
     }
@@ -453,11 +464,11 @@ static NSString* getLooHTMLContent() {
 // =====================================================================
 // KHỞI CHẠY KHÔNG PHỤ THUỘC VÀO TRỄ THỜI GIAN LOAD APP
 // =====================================================================
-__attribute__((constructor)) static void initialize() {
+__attribute__((constructor)) static void initialize(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
+        if ([UIApplication sharedApplication].keyWindow || [UIApplication sharedApplication].windows.count > 0) {
             [HuyMenuInitializer tryInitializeUI];
         }
 #pragma clang diagnostic pop
