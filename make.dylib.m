@@ -26,12 +26,12 @@ static CADisplayLink *displayLink = nil;
 static NSTimeInterval lastTimestamp = 0;
 static NSInteger frameCount = 0;
 
-// Trạng thái cấu hình
+// Trạng thái cấu hình lỏ
 static BOOL isFpsEnabled = NO;
 static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 
 // =====================================================================
-// KHAI BÁO INTERFACE (CẦN PHẢI ĐẶT TRƯỚC ĐỂ TRÌNH BIÊN DỊCH HIỂU)
+// KHAI BÁO INTERFACE (CẦN PHẢI ĐẶT TRƯỚC ĐỂ TRÌNH BIÊN DỊCH HIỂU THỨ TỰ)
 // =====================================================================
 @interface HuyMenuController : UIViewController <WKNavigationDelegate>
 + (void)toggleMenuGlobal;
@@ -72,7 +72,7 @@ static void wipeDataAndExit(void) {
 }
 
 // =====================================================================
-// GIAO DIỆN WEB HTML CYBERPUNK (BO TRÒN GÓC PHÁT SÁNG NEON)
+// GIAO DIỆN WEB HTML CYBERPUNK BO TRÒN GÓC PHÁT SÁNG THEO YÊU CẦU
 // =====================================================================
 static NSString* getLooHTMLContent(void) {
     return @""
@@ -180,7 +180,7 @@ static NSString* getLooHTMLContent(void) {
             savedSpeakerText = (NSString *)value;
             dispatch_async(dispatch_get_main_queue(), ^{
                 AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:savedSpeakerText];
-                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng Việt chuẩn
+                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng đọc tiếng Việt
                 utterance.rate = 0.5;
                 AVSpeechSynthesizer *synthesizer = [[AVSpeechSynthesizer alloc] init];
                 [synthesizer speakUtterance:utterance];
@@ -199,7 +199,7 @@ static NSString* getLooHTMLContent(void) {
 @end
 
 // =====================================================================
-// CỬ SỔ TRONG SUỐT TOUCH PASSTHROUGH VẼ ĐÈ
+// CỬ SỔ TRONG SUỐT TOUCH PASSTHROUGH VẼ ĐÈ CHẠY NGẦM
 // =====================================================================
 @implementation HuyPassthroughWindow
 
@@ -217,7 +217,7 @@ static NSString* getLooHTMLContent(void) {
 @end
 
 // =====================================================================
-// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH
+// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH (VIEW CONTROLLER)
 // =====================================================================
 @implementation HuyMenuController
 
@@ -248,7 +248,7 @@ static NSString* getLooHTMLContent(void) {
     UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
     [menuContainer addGestureRecognizer:panDrag];
     
-    // Cấu hình cầu nối
+    // Cấu hình cầu nối gửi nhận lệnh Web View
     WKUserContentController *userContentController = [[WKUserContentController alloc] init];
     [userContentController addScriptMessageHandler:[[HuyLooBridgeHandler alloc] init] name:@"HuyLooBridge"];
     
@@ -263,12 +263,11 @@ static NSString* getLooHTMLContent(void) {
     menuWebView.layer.cornerRadius = 20;
     menuWebView.layer.masksToBounds = YES;
     
-    // Viền mặc định ban đầu là Cyan phát sáng
+    // Đặt viền LED phát sáng bo góc cao cấp
     menuWebView.layer.borderColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.8 alpha:1.0].CGColor;
     menuWebView.layer.borderWidth = 2.0;
     
     [menuContainer addSubview:menuWebView];
-    
     [menuWebView loadHTMLString:getLooHTMLContent() baseURL:nil];
 }
 
@@ -312,7 +311,7 @@ static NSString* getLooHTMLContent(void) {
 
 + (void)changeBorderColorWithHex:(NSString *)hexColor {
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *cleanHex = [cleanHex stringByReplacingOccurrencesOfString:@"#" withString:@""];
+        NSString *cleanHex = nil;
         if ([hexColor hasPrefix:@"#"]) {
             cleanHex = [hexColor substringFromIndex:1];
         } else {
@@ -459,7 +458,7 @@ static NSString* getLooHTMLContent(void) {
 + (void)handleFloatingPan:(UIPanGestureRecognizer *)gesture {
     UIView *btn = gesture.view;
     CGPoint translation = [gesture translationInView:btn.superview];
-    if (gesture.state == UIGestureRecognizerStateChanged) {
+    if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
         floatingButtonWindow.center = CGPointMake(floatingButtonWindow.center.x + translation.x, floatingButtonWindow.center.y + translation.y);
         [gesture setTranslation:CGPointZero inView:btn.superview];
     }
