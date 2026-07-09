@@ -1,566 +1,483 @@
 #import <UIKit/UIKit.h>
-#import <Foundation/Foundation.h>
+#import <WebKit/WebKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
-#import <dlfcn.h>
-#import <mach-o/dyld.h>
-#import <mach/mach.h>
-#import <mach/mach_vm.h>
-#import <mach/mach_init.h>
-#import <mach/vm_map.h>
-#import <mach/vm_prot.h>
-#import <mach/vm_sync.h>
-#import <mach/task.h>
-#import <mach/task_info.h>
-#import <mach/thread_act.h>
-#import <mach/thread_info.h>
-#import <mach/thread_status.h>
-#import <mach/mach_port.h>
-#import <mach/mach_types.h>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
+// =====================================================================
+// ĐỊNH NGHĨA CỨNG TRÁNH LỖI BIÊN DỊCH GITHUB
+// =====================================================================
+#ifndef UIControlStateNormal
+#define UIControlStateNormal 0
+#endif
+#ifndef UIControlEventTouchUpInside
+#define UIControlEventTouchUpInside (1 << 6)
 #endif
 
-// =====================================================================
-// OFFSET FF - MÀY ĐIỀN OFFSET THẬT VÀO ĐÂY
-// =====================================================================
-#define OFF_MAIN        0x10F4F4
-#define OFF_ENEMY       0x10F4F8
-#define OFF_HEALTH      0xF8
-#define OFF_ARMOR       0xFC
-#define OFF_POS_X       0x34
-#define OFF_POS_Y       0x38
-#define OFF_POS_Z       0x3C
-#define OFF_MOUSE_X     0x40
-#define OFF_MOUSE_Y     0x44
-#define OFF_GOD         0x29D1F
-#define OFF_VISIBLE     0x11b1254
-#define OFF_NAME        0x11a18e0
-#define OFF_SPEED       0x17f7314
-#define OFF_GHOST       0x2262f18
-#define OFF_BYPASS      0x3ab11ec
-#define OFF_FIRING      0x11a1844
-#define OFF_MOVING      0x11a13c
-#define OFF_TEAM        0x11bfe4
-#define OFF_DEAD        0x11a11e8
+// Các phần tử giao diện tĩnh giữ trong bộ nhớ
+static UIWindow *floatingButtonWindow = nil; 
+static UIWindow *overlayMenuWindow = nil;    
+static UIView *menuContainer = nil;
+static WKWebView *menuWebView = nil;
+static UIButton *floatingLogoBtn = nil;
 
-// =====================================================================
-// BIẾN TOÀN CỤC
-// =====================================================================
-static UIWindow *overlayWindow = nil;
-static UIView *espCanvas = nil;
-static CAShapeLayer *fovCircle = nil;
-static NSMutableArray *espLayers = nil;
+// Nhãn hiển thị FPS thực tế
+static UILabel *fpsLabel = nil;
 static CADisplayLink *displayLink = nil;
-static UIButton *menuButton = nil;
-static BOOL isMenuVisible = NO;
+static NSTimeInterval lastTimestamp = 0;
+static NSInteger frameCount = 0;
 
-static BOOL isEspEnabled = YES;
-static BOOL isBoxEnabled = YES;
-static BOOL isLineEnabled = YES;
-static BOOL isSkeletonEnabled = YES;
-static BOOL isNameEnabled = YES;
-static BOOL isDistanceEnabled = YES;
-static BOOL isHPEnabled = YES;
-static BOOL isAimbotEnabled = NO;
-static float fovSize = 150.0f;
-static BOOL isGodMode = NO;
-static BOOL isSpeedHack = NO;
-static BOOL isGhostEnabled = NO;
-static BOOL isBypassEnabled = NO;
+// Trạng thái cấu hình lỏ
+static BOOL isFpsEnabled = NO;
+static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
+
+@interface HuyMenuController : UIViewController <WKNavigationDelegate>
++ (void)toggleMenuGlobal;
++ (void)changeBorderColorWithHex:(NSString *)hexColor;
++ (void)updateFpsState:(BOOL)enabled;
+@end
 
 // =====================================================================
-// STRUCT
+// CƠ CHẾ XOÁ SẠCH DỮ LIỆU CÀI ĐẶT & THOÁT APP AN TOÀN
 // =====================================================================
-typedef struct {
-    int health;
-    int armor;
-    float x, y, z;
-    float mouseX, mouseY;
-    char name[64];
-    bool isVisible;
-    bool isDead;
-    bool isTeammate;
-    bool isFiring;
-    bool isMoving;
-} PlayerInfo;
-
-// =====================================================================
-// HÀM ĐỌC/GHI MEMORY
-// =====================================================================
-static uintptr_t getBase(void) {
-    return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
-}
-
-static float rf(uintptr_t a) {
-    if (a == 0) return 0;
-    return *(float *)a;
-}
-
-static int ri(uintptr_t a) {
-    if (a == 0) return 0;
-    return *(int *)a;
-}
-
-static bool rb(uintptr_t a) {
-    if (a == 0) return false;
-    return *(bool *)a;
-}
-
-static void wf(uintptr_t a, float v) {
-    if (a == 0) return;
-    *(float *)a = v;
-}
-
-static void wi(uintptr_t a, int v) {
-    if (a == 0) return;
-    *(int *)a = v;
+static void wipeDataAndExit() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Xoá sạch toàn bộ cài đặt đã lưu của dylib
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"huy_saved_speaker_text"];
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"huy_saved_fps_state"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        
+        // Ẩn giao diện
+        if (displayLink) {
+            [displayLink invalidate];
+            displayLink = nil;
+        }
+        [overlayMenuWindow setHidden:YES];
+        [floatingButtonWindow setHidden:YES];
+        
+        // Thoát ứng dụng lập tức
+        exit(0);
+    });
 }
 
 // =====================================================================
-// LẤY PLAYER
+// GIAO DIỆN WEB HTML SIÊU LỎ CYBERPUNK (ĐÚNG KIỂU BO TRÒN)
 // =====================================================================
-static PlayerInfo getMainPlayer(void) {
-    PlayerInfo p = {0};
-    uintptr_t b = getBase();
-    if (b == 0) return p;
-    uintptr_t addr = b + OFF_MAIN;
-    p.health = ri(addr + OFF_HEALTH);
-    p.armor = ri(addr + OFF_ARMOR);
-    p.x = rf(addr + OFF_POS_X);
-    p.y = rf(addr + OFF_POS_Y);
-    p.z = rf(addr + OFF_POS_Z);
-    p.mouseX = rf(addr + OFF_MOUSE_X);
-    p.mouseY = rf(addr + OFF_MOUSE_Y);
-    p.isFiring = rb(addr + OFF_FIRING);
-    p.isMoving = rb(addr + OFF_MOVING);
-    return p;
+static NSString* getLooHTMLContent() {
+    return @""
+    "<!DOCTYPE html>"
+    "<html>"
+    "<head>"
+    "  <meta charset='UTF-8'>"
+    "  <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>"
+    "  <style>"
+    "    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }"
+    "    body {"
+    "      margin: 0; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;"
+    "      background: rgba(10, 13, 20, 0.96); color: #fff; border-radius: 20px;"
+    "      height: 100vh; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;"
+    "    }"
+    "    .header { text-align: center; border-bottom: 1px solid rgba(0,255,204,0.15); padding-bottom: 8px; }"
+    "    .header h1 { margin: 0; font-size: 16px; color: #00ffcc; text-shadow: 0 0 8px rgba(0, 255, 204, 0.4); }"
+    "    .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 10px; }"
+    "    .row span { font-size: 13px; }"
+    "    .switch { position: relative; display: inline-block; width: 44px; height: 22px; }"
+    "    .switch input { opacity: 0; width: 0; height: 0; }"
+    "    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #232733; border-radius: 22px; transition: .3s; }"
+    "    .slider:before { position: absolute; content: ''; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: #fff; border-radius: 50%; transition: .3s; }"
+    "    input:checked + .slider { background-color: #00ffcc; }"
+    "    input:checked + .slider:before { transform: translateX(22px); }"
+    "    .input-box { width: 100%; height: 35px; background: #070913; border: 1px solid #1f2d3d; border-radius: 8px; color: #fff; padding: 0 10px; font-size: 12px; outline: none; margin-bottom: 8px; }"
+    "    .btn-blue { width: 100%; background: #00ffcc; color: #000; border: none; padding: 8px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; margin-bottom: 5px; }"
+    "    .btn-red { width: 100%; background: linear-gradient(135deg, #ff0055, #990022); border: none; color: #fff; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; }"
+    "    .select-color { background: #070913; border: 1px solid #1f2d3d; color: #fff; padding: 5px; border-radius: 5px; font-size: 12px; outline: none; }"
+    "  </style>"
+    "</head>"
+    "<body>"
+    "  <div class='header'>"
+    "    <h1>WHITE HAT TWEAK LỎ</h1>"
+    "    <p style='margin:2px 0 0 0; font-size:9px; color:#8a99ad;'>Giao Diện Web Độc Quyền Sếp Huy</p>"
+    "  </div>"
+    "  "
+    "  <div>"
+    "    <div class='row'>"
+    "      <span>📈 Đồng hồ đo FPS thực tế</span>"
+    "      <label class='switch'>"
+    "        <input type='checkbox' id='fpsCheck' onchange='sendAction(\"toggleFps\", this.checked)'>"
+    "        <span class='slider'></span>"
+    "      </label>"
+    "    </div>"
+    "    "
+    "    <div class='row'>"
+    "      <span>🎨 Màu viền Neon</span>"
+    "      <select class='select-color' onchange='sendAction(\"changeColor\", this.value)'>"
+    "        <option value='#00ffcc'>Xanh Cyan</option>"
+    "        <option value='#ff0055'>Đỏ Hồng</option>"
+    "        <option value='#33ff00'>Xanh Lá</option>"
+    "        <option value='#ffcc00'>Vàng Neon</option>"
+    "      </select>"
+    "    </div>"
+    "    "
+    "    <div style='background: rgba(255,255,255,0.02); padding: 10px; border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);'>"
+    "      <span style='font-size: 11px; color:#8a99ad; display:block; margin-bottom:6px;'>🗣️ Loa phát giọng nói (Google TTS)</span>"
+    "      <input type='text' class='input-box' id='speakText' placeholder='Nhập chữ muốn máy phát âm...' value='Chào sếp Đức Huy!'>"
+    "      <button class='btn-blue' onclick='speakNow()'>PHÁT GIỌNG NÓI</button>"
+    "    </div>"
+    "  </div>"
+    "  "
+    "  <button class='btn-red' onclick='sendAction(\"wipeAndExit\", null)'>💥 ĐÓNG APP & XOÁ SẠCH DỮ LIỆU</button>"
+    "  "
+    "  <script>"
+    "    function sendAction(action, value) {"
+    "      window.webkit.messageHandlers.HuyLooBridge.postMessage({ 'action': action, 'value': value });"
+    "    }"
+    "    function speakNow() {"
+    "      var txt = document.getElementById('speakText').value;"
+    "      sendAction('speak', txt);"
+    "    }"
+    "    window.onload = function() {"
+    "      sendAction('requestSync', null);"
+    "    };"
+    "    function syncWebState(fpsState, text) {"
+    "      document.getElementById('fpsCheck').checked = fpsState;"
+    "      document.getElementById('speakText').value = text;"
+    "    }"
+    "  </script>"
+    "</body>"
+    "</html>";
 }
 
-static PlayerInfo getEnemyInfo(uintptr_t addr) {
-    PlayerInfo e = {0};
-    e.health = ri(addr + OFF_HEALTH);
-    e.x = rf(addr + OFF_POS_X);
-    e.y = rf(addr + OFF_POS_Y);
-    e.z = rf(addr + OFF_POS_Z);
-    e.isDead = rb(addr + OFF_DEAD);
-    e.isTeammate = rb(addr + OFF_TEAM);
-    e.isVisible = rb(addr + OFF_VISIBLE);
-    e.isFiring = rb(addr + OFF_FIRING);
-    e.isMoving = rb(addr + OFF_MOVING);
-    char *namePtr = (char *)(addr + OFF_NAME);
-    if (namePtr) {
-        strncpy(e.name, namePtr, 63);
-        e.name[63] = '\0';
-    }
-    return e;
-}
+// =====================================================================
+// CẦU NỐI WEB-TO-NATIVE TƯƠNG TÁC THỰC TẾ 100%
+// =====================================================================
+@interface HuyLooBridgeHandler : NSObject <WKScriptMessageHandler>
+@end
 
-static void getAllEnemies(PlayerInfo *enemies, int *count) {
-    *count = 0;
-    uintptr_t b = getBase();
-    if (b == 0) return;
-    uintptr_t eb = b + OFF_ENEMY;
-    for (int i = 4; i <= 128; i += 4) {
-        uintptr_t addr = eb + i;
-        PlayerInfo e = getEnemyInfo(addr);
-        if (e.health > 0 && e.health <= 100 && e.x != 0 && !e.isDead && !e.isTeammate) {
-            enemies[*count] = e;
-            (*count)++;
-            if (*count >= 31) break;
+@implementation HuyMonitorBridgeHandler : NSObject
+@end
+
+@implementation HuyLooBridgeHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
+    if ([message.name isEqualToString:@"HuyLooBridge"]) {
+        NSDictionary *dict = message.body;
+        NSString *action = dict[@"action"];
+        id value = dict[@"value"];
+        
+        if ([action isEqualToString:@"toggleFps"]) {
+            isFpsEnabled = [value boolValue];
+            [HuyMenuController updateFpsState:isFpsEnabled];
+        } 
+        else if ([action isEqualToString:@"changeColor"]) {
+            [HuyMenuController changeBorderColorWithHex:(NSString *)value];
+        } 
+        else if ([action isEqualToString:@"speak"]) {
+            savedSpeakerText = (NSString *)value;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:savedSpeakerText];
+                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng đọc Tiếng Việt chuẩn Google
+                utterance.rate = 0.5;
+                AVSpeechSynthesizer *synthesizer = [[AVSpeechSynthesizer alloc] init];
+                [synthesizer speakUtterance:utterance];
+            });
+        } 
+        else if ([action isEqualToString:@"wipeAndExit"]) {
+            wipeDataAndExit();
+        } 
+        else if ([action isEqualToString:@"requestSync"]) {
+            NSString *js = [NSString stringWithFormat:@"syncWebState(%d, '%@')", isFpsEnabled, savedSpeakerText];
+            [menuWebView evaluateJavaScript:js completionHandler:nil];
         }
     }
 }
 
-static float calcDist(PlayerInfo a, PlayerInfo b) {
-    float dx = a.x - b.x;
-    float dy = a.y - b.y;
-    float dz = a.z - b.z;
-    return sqrtf(dx*dx + dy*dy + dz*dz);
-}
+@end
 
-static PlayerInfo findClosestEnemy(PlayerInfo p) {
-    PlayerInfo enemies[32];
-    int count = 0;
-    getAllEnemies(enemies, &count);
-    PlayerInfo empty = {0};
-    if (count == 0) return empty;
-    PlayerInfo closest = enemies[0];
-    float minD = calcDist(p, closest);
-    for (int i = 1; i < count; i++) {
-        float d = calcDist(p, enemies[i]);
-        if (d < minD) {
-            minD = d;
-            closest = enemies[i];
+// =====================================================================
+// CỬ SỔ TRONG SUỐT TOUCH PASSTHROUGH VẼ ĐÈ
+// =====================================================================
+@interface HuyPassthroughWindow : UIWindow
+@end
+
+@implementation HuyPassthroughWindow
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hitView = [super hitTest:point withEvent:event];
+    if (menuContainer && !menuContainer.hidden && menuContainer.alpha > 0) {
+        CGPoint pointInContainer = [menuContainer convertPoint:point fromView:self];
+        if ([menuContainer pointInside:pointInContainer withEvent:event]) {
+            return hitView;
         }
     }
-    return closest;
-}
-
-static CGPoint worldToScreen(float x, float y, float z, CGSize size) {
-    return CGPointMake(x + 100, y + 100);
-}
-
-// =====================================================================
-// HACK FUNCTIONS
-// =====================================================================
-static void doAimbot(PlayerInfo p, PlayerInfo t) {
-    if (t.health <= 0) return;
-    float d = calcDist(p, t);
-    if (d < 0.1f || d > fovSize) return;
-    float pitch = asinf((t.z - p.z) / d) * 180.0f / M_PI;
-    float yaw = -atan2f(t.x - p.x, t.y - p.y) * 180.0f / M_PI + 180.0f;
-    uintptr_t b = getBase();
-    if (b == 0) return;
-    uintptr_t addr = b + OFF_MAIN;
-    wf(addr + OFF_MOUSE_X, yaw);
-    wf(addr + OFF_MOUSE_Y, pitch);
-}
-
-static void doGod(bool enable) {
-    uintptr_t b = getBase();
-    if (b == 0) return;
-    if (enable) wi(b + OFF_GOD, 2341507216);
-}
-
-static void doGhost(bool enable) {
-    uintptr_t b = getBase();
-    if (b == 0) return;
-    uintptr_t addr = b + OFF_GHOST;
-    if (enable) { wi(addr, 0xE3A00000); wi(addr+4, 0xE12FFF1E); }
-}
-
-static void doBypass(bool enable) {
-    uintptr_t b = getBase();
-    if (b == 0) return;
-    uintptr_t addr = b + OFF_BYPASS;
-    if (enable) { wi(addr, 0xE3A00001); wi(addr+4, 0xE12FFF1E); }
-}
-
-static void doSpeed(bool enable) {
-    uintptr_t b = getBase();
-    if (b == 0) return;
-    wf(b + OFF_SPEED, enable ? 3.0f : 1.0f);
-}
-
-// =====================================================================
-// MENU UI
-// =====================================================================
-@interface ModMenuView : UIView
-@end
-
-@implementation ModMenuView
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (self) {
-        self.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.95];
-        self.layer.cornerRadius = 16;
-        self.layer.borderWidth = 2;
-        self.layer.borderColor = [UIColor orangeColor].CGColor;
-        self.hidden = YES;
-        [self setupUI];
-    }
-    return self;
-}
-
-- (void)setupUI {
-    CGFloat w = 300, h = 440;
-    CGFloat x = (self.superview.bounds.size.width - w) / 2;
-    CGFloat y = (self.superview.bounds.size.height - h) / 2;
-    self.frame = CGRectMake(x, y, w, h);
-    
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, w-20, 30)];
-    title.text = @"⚡ FF MOD";
-    title.textColor = [UIColor orangeColor];
-    title.font = [UIFont boldSystemFontOfSize:20];
-    title.textAlignment = NSTextAlignmentCenter;
-    [self addSubview:title];
-    
-    UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
-    close.frame = CGRectMake(w-40, 5, 30, 30);
-    [close setTitle:@"✕" forState:UIControlStateNormal];
-    [close setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [close addTarget:self action:@selector(closeMenu) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:close];
-    
-    int yPos = 50;
-    [self addSwitch:@"👁️ ESP" y:&yPos tag:0];
-    [self addSwitch:@"📦 Box" y:&yPos tag:1];
-    [self addSwitch:@"📏 Line" y:&yPos tag:2];
-    [self addSwitch:@"🦴 Skeleton" y:&yPos tag:3];
-    [self addSwitch:@"🏷️ Name" y:&yPos tag:4];
-    [self addSwitch:@"📡 Distance" y:&yPos tag:5];
-    [self addSwitch:@"❤️ HP" y:&yPos tag:6];
-    [self addSwitch:@"🎯 Aimbot" y:&yPos tag:7];
-    [self addSwitch:@"🛡️ God" y:&yPos tag:8];
-    [self addSwitch:@"👻 Ghost" y:&yPos tag:9];
-    [self addSwitch:@"⚡ Speed"( y:&yPos tag:1010];
-    [self addSwitch:@"🔄 Bypass," y:&yPos tag:11];
-    
-    UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake yPos, 100, 30)];
-    fovLabel.text = @"FOV: 150";
-    fovLabel.textColor = [UIColor whiteColor];
-    fovLabel.font = [UIFont systemFontOfSize:12];
-    fovLabel.tag = 500;
-    [self addSubview:fovLabel];
-    
-    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(110, yPos, 180, 30)];
-    fovSlider.minimumValue = 30;
-    fovSlider.maximumValue = 300;
-    fovSlider.value = 150;
-    fovSlider.tag = 501;
-    [fovSlider addTarget:self action:@selector(fovChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:fovSlider];
-    yPos += 45;
-    
-    UIButton *closeApp = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeApp.frame = CGRectMake(30, yPos, w-60, 40);
-    [closeApp setTitle:@"🔴 ĐÓNG APP" forState:UIControlStateNormal];
-    [closeApp setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    closeApp.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
-    closeApp.layer.cornerRadius = 10;
-    [closeApp addTarget:self action:@selector(closeApp) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:closeApp];
-}
-
-- (void)addSwitch:(NSString *)title y:(int *)y tag:(int)tag {
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, *y, 140, 30)];
-    lbl.text = title;
-    lbl.textColor = [UIColor whiteColor];
-    lbl.font = [UIFont systemFontOfSize:13];
-    [self addSubview:lbl];
-    
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(230, *y, 50, 30)];
-    sw.onTintColor = [UIColor orangeColor];
-    sw.tag = tag;
-    if (tag < 7) sw.on = YES;
-    [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:sw];
-    *y += 35;
-}
-
-- (void)switchChanged:(UISwitch *)sender {
-    switch (sender.tag) {
-        case 0: isEspEnabled = sender.on; break;
-        case 1: isBoxEnabled = sender.on; break;
-        case 2: isLineEnabled = sender.on; break;
-        case 3: isSkeletonEnabled = sender.on; break;
-        case 4: isNameEnabled = sender.on; break;
-        case 5: isDistanceEnabled = sender.on; break;
-        case 6: isHPEnabled = sender.on; break;
-        case 7: isAimbotEnabled = sender.on; break;
-        case 8: isGodMode = sender.on; doGod(sender.on); break;
-        case 9: isGhostEnabled = sender.on; doGhost(sender.on); break;
-        case 10: isSpeedHack = sender.on; doSpeed(sender.on); break;
-        case 11: isBypassEnabled = sender.on; doBypass(sender.on); break;
-    }
-}
-
-- (void)fovChanged:(UISlider *)sender {
-    fovSize = sender.value;
-    UILabel *label = (UILabel *)[self viewWithTag:500];
-    label.text = [NSString stringWithFormat:@"FOV: %.0f", sender.value];
-}
-
-- (void)closeMenu {
-    self.hidden = YES;
-    isMenuVisible = NO;
-    menuButton.hidden = NO;
-}
-
-- (void)closeApp {
-    exit(0);
+    // Nếu chạm bên ngoài menu, tự động chạm xuyên xuống app/game đang chơi
+    return nil;
 }
 
 @end
 
 // =====================================================================
-// OVERLAY
+// LỚP ĐIỀU KHIỂN GIAO DIỆN CHÍNH
 // =====================================================================
-@interface OverlayViewController : UIViewController
-@property (nonatomic, strong) ModMenuView *menuView;
-@end
-
-@implementation OverlayViewController
+@implementation HuyMenuController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
-    espLayers = [NSMutableArray array];
     
-    espCanvas = [[UIView alloc] initWithFrame:self.view.bounds];
-    espCanvas.backgroundColor = [UIColor clearColor];
-    espCanvas.userInteractionEnabled = NO;
-    [self.view addSubview:espCanvas];
+    // Tạo nhãn đo FPS lơ lửng ngoài màn hình
+    fpsLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 40, 80, 25)];
+    fpsLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
+    fpsLabel.textColor = [UIColor greenColor];
+    fpsLabel.font = [UIFont fontWithName:@"Courier-Bold" size:12];
+    fpsLabel.textAlignment = NSTextAlignmentCenter;
+    fpsLabel.layer.cornerRadius = 6;
+    fpsLabel.layer.masksToBounds = YES;
+    fpsLabel.layer.borderWidth = 1;
+    fpsLabel.layer.borderColor = [UIColor greenColor].CGColor;
+    fpsLabel.hidden = YES; // Mặc định ẩn
+    [self.view addSubview:fpsLabel];
     
-    menuButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    menuButton.frame = CGRectMake(10, 50, 50, 50);
-    menuButton.backgroundColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9];
-    menuButton.layer.cornerRadius = 25;
-    [menuButton setTitle:@"⚡" forState:UIControlStateNormal];
-    menuButton.titleLabel.font = [UIFont systemFontOfSize:24];
-    [menuButton addTarget:self action:@selector(showMenu) forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:menuButton];
+    // Khung chứa WebView bo tròn viền LED cao cấp
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 310, 410)];
+    menuContainer.backgroundColor = [UIColor clearColor];
+    menuContainer.layer.borderWidth = 2.0;
+    menuContainer.layer.borderColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.8 alpha:1.0].CGColor;
+    menuContainer.layer.cornerRadius = 20;
+    menuContainer.hidden = YES; 
+    [self.view addSubview:menuContainer];
     
-    self.menuView = [[ModMenuView alloc] initWithFrame:self.view.bounds];
-    [self.view addSubview:self.menuView];
+    // Cử chỉ kéo thả di chuyển menu
+    UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
+    [menuContainer addGestureRecognizer:panDrag];
     
-    fovCircle = [CAShapeLayer layer];
-    fovCircle.fillColor = [UIColor clearColor].CGColor;
-    fovCircle.strokeColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:0.5].CGColor;
-    fovCircle.lineWidth = 1.5;
-    [self.view.layer addSublayer:fovCircle];
+    // Cấu hình cầu nối
+    WKUserContentController *userContentController = [[WKUserContentController alloc] init];
+    [userContentController addScriptMessageHandler:[[HuyLooBridgeHandler alloc] init] name:@"HuyLooBridge"];
     
-    displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(updateLoop)];
-    displayLink.preferredFramesPerSecond = 25;
-    [displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
+    configuration.userContentController = userContentController;
+    
+    menuWebView = [[WKWebView alloc] initWithFrame:menuContainer.bounds configuration:configuration];
+    menuWebView.navigationDelegate = self;
+    menuWebView.backgroundColor = [UIColor clearColor];
+    menuWebView.scrollView.scrollEnabled = NO;
+    menuWebView.scrollView.bounces = NO;
+    menuWebView.layer.cornerRadius = 20;
+    menuWebView.layer.masksToBounds = YES;
+    [menuContainer addSubview:menuWebView];
+    
+    [menuWebView loadHTMLString:getLooHTMLContent() baseURL:nil];
 }
 
-- (void)showMenu {
-    self.menuView.hidden = NO;
-    isMenuVisible = YES;
-    menuButton.hidden = YES;
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    CGRect bounds = self.view.bounds;
+    menuContainer.center = CGPointMake(bounds.size.width / 2, bounds.size.height / 2);
 }
 
-- (void)updateLoop {
-    if (isEspEnabled) [self drawESP];
-    if (isAimbotEnabled) {
-        PlayerInfo player = getMainPlayer();
-        PlayerInfo target = findClosestEnemy(player);
-        if (target.health > 0) doAimbot(player, target);
-    }
-    if (isGodMode) doGod(YES);
-    if (isBypassEnabled) doBypass(YES);
-    if (isSpeedHack) doSpeed(YES);
-}
-
-- (void)drawESP {
-    if (!isEspEnabled) return;
-    for (CALayer *layer in espLayers) { [layer removeFromSuperlayer]; }
-    [espLayers removeAllObjects];
-    
-    PlayerInfo player = getMainPlayer();
-    PlayerInfo enemies[32];
-    int count = 0;
-    getAllEnemies(enemies, &count);
-    CGSize screenSize = self.view.bounds.size;
-    CGPoint center = CGPointMake(screenSize.width/2, screenSize.height/2);
-    
-    if (isAimbotEnabled) {
-        UIBezierPath *path = [UIBezierPath bezierPathWithArcCenter:center radius:fovSize startAngle:0 endAngle:2*M_PI clockwise:YES];
-        fovCircle.path = path.CGPath;
-        fovCircle.hidden = NO;
-    } else {
-        fovCircle.hidden = YES;
-    }
-    
-    UIBezierPath *linePath = [UIBezierPath bezierPath];
-    UIBezierPath *boxPath = [UIBezierPath bezierPath];
-    UIBezierPath *skeletonPath = [UIBezierPath bezierPath];
-    NSMutableArray *labels = [NSMutableArray array];
-    
-    for (int i = 0; i < count; i++) {
-        PlayerInfo enemy = enemies[i];
-        if (enemy.health <= 0 || enemy.isDead) continue;
-        
-        CGPoint screenPos = worldToScreen(enemy.x, enemy.y, enemy.z, screenSize);
-        if (screenPos.x < 0 || screenPos.y < 0) continue;
-        
-        float boxSize = 40.0;
-        CGRect box = CGRectMake(screenPos.x - boxSize/2, screenPos.y - boxSize, boxSize, boxSize);
-        
-        if (isLineEnabled) {
-            [linePath moveToPoint:center];
-            [linePath addLineToPoint:screenPos];
-        }
-        if (isBoxEnabled) {
-            [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
-        }
-        if (isSkeletonEnabled) {
-            [skeletonPath moveToPoint:CGPointMake(box.origin.x, box.origin.y)];
-            [skeletonPath addLineToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y + boxSize)];
-            [skeletonPath moveToPoint:CGPointMake(box.origin.x + boxSize, box.origin.y)];
-            [skeletonPath addLineToPoint:CGPointMake(box.origin.x, box.origin.y + boxSize)];
-        }
-        
-        if (isNameEnabled) {
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x-30, screenPos.y-boxSize-20, 60, 15)];
-            label.text = [NSString stringWithUTF8String:enemy.name];
-            label.textColor = [UIColor whiteColor];
-            label.font = [UIFont systemFontOfSize:9];
-            label.textAlignment = NSTextAlignmentCenter;
-            [labels addObject:label];
-        }
-        if (isDistanceEnabled) {
-            float dist = calcDist(player, enemy);
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x-20, screenPos.y+boxSize+2, 40, 12)];
-            label.text = [NSString stringWithFormat:@"%.0fm", dist];
-            label.textColor = [UIColor yellowColor];
-            label.font = [UIFont systemFontOfSize:8];
-            [labels addObject:label];
-        }
-        if (isHPEnabled) {
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(screenPos.x-20, screenPos.y-boxSize-5, 40, 12)];
-            label.text = [NSString stringWithFormat:@"❤️ %d", enemy.health];
-            label.textColor = enemy.health > 50 ? [UIColor greenColor] : [UIColor redColor];
-            label.font = [UIFont systemFontOfSize:8];
-            [labels addObject:label];
-        }
-    }
-    
-    if (linePath.CGPath != NULL) {
-        CAShapeLayer *layer = [CAShapeLayer layer];
-        layer.path = linePath.CGPath;
-        layer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
-        layer.lineWidth = 0.8;
-        layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer];
-        [espLayers addObject:layer];
-    }
-    if (boxPath.CGPath != NULL) {
-        CAShapeLayer *layer = [CAShapeLayer layer];
-        layer.path = boxPath.CGPath;
-        layer.strokeColor = [UIColor redColor].CGColor;
-        layer.lineWidth = 1.5;
-        layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer];
-        [espLayers addObject:layer];
-    }
-    if (skeletonPath.CGPath != NULL) {
-        CAShapeLayer *layer = [CAShapeLayer layer];
-        layer.path = skeletonPath.CGPath;
-        layer.strokeColor = [UIColor orangeColor].CGColor;
-        layer.lineWidth = 1.0;
-        layer.fillColor = [UIColor clearColor].CGColor;
-        [espCanvas.layer addSublayer:layer];
-        [espLayers addObject:layer];
-    }
-    
-    for (UILabel *label in labels) {
-        [espCanvas addSubview:label];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [label removeFromSuperview];
-        });
+- (void)handleMenuDrag:(UIPanGestureRecognizer *)gesture {
+    CGPoint trans = [gesture translationInView:self.view];
+    if (gesture.state == UIGestureRecognizerStateChanged) {
+        menuContainer.center = CGPointMake(menuContainer.center.x + trans.x, menuContainer.center.y + trans.y);
+        [gesture setTranslation:CGPointZero inView:self.view];
     }
 }
 
-- (void)dealloc {
-    [displayLink invalidate];
-    displayLink = nil;
++ (void)toggleMenuGlobal {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (menuContainer.hidden) {
+            menuContainer.hidden = NO;
+            menuContainer.transform = CGAffineTransformMakeScale(0.6, 0.6);
+            menuContainer.alpha = 0.0;
+            [UIView animateWithDuration:0.25 delay:0.0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+                menuContainer.transform = CGAffineTransformIdentity;
+                menuContainer.alpha = 1.0;
+            } completion:nil];
+            
+            // Đồng bộ dữ liệu lên Web khi mở
+            NSString *js = [NSString stringWithFormat:@"syncWebState(%d, '%@')", isFpsEnabled, savedSpeakerText];
+            [menuWebView evaluateJavaScript:js completionHandler:nil];
+        } else {
+            [UIView animateWithDuration:0.2 animations:^{
+                menuContainer.transform = CGAffineTransformMakeScale(0.7, 0.7);
+                menuContainer.alpha = 0.0;
+            } completion:^(BOOL finished) {
+                menuContainer.hidden = YES;
+            }];
+        }
+    });
+}
+
++ (void)changeBorderColorWithHex:(NSString *)hexColor {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Chuyển Hex string sang UIColor
+        NSString *cleanString = [hexColor stringByReplacingOccurrencesOfString:@"#" withString:@""];
+        unsigned int baseValue;
+        [[NSScanner scannerWithString:cleanString] scanHexInt:&baseValue];
+        float red = ((baseValue >> 16) & 0xFF) / 255.0f;
+        float green = ((baseValue >> 8) & 0xFF) / 255.0f;
+        float blue = ((baseValue) & 0xFF) / 255.0f;
+        
+        UIColor *newColor = [UIColor colorWithRed:red green:green blue:blue alpha:1.0];
+        menuContainer.layer.borderColor = newColor.CGColor;
+    });
+}
+
+// =====================================================================
+// THUẬT TOÁN ĐO FPS CHUẨN XÁC ĐỘC QUYỀN
+// =====================================================================
++ (void)updateFpsState:(BOOL)enabled {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (enabled) {
+            fpsLabel.hidden = NO;
+            if (!displayLink) {
+                lastTimestamp = 0;
+                frameCount = 0;
+                displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(calculateFPS:)];
+                [displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+            }
+        } else {
+            fpsLabel.hidden = YES;
+            if (displayLink) {
+                [displayLink invalidate];
+                displayLink = nil;
+            }
+        }
+    });
+}
+
++ (void)calculateFPS:(CADisplayLink *)link {
+    if (lastTimestamp == 0) {
+        lastTimestamp = link.timestamp;
+        return;
+    }
+    frameCount++;
+    NSTimeInterval delta = link.timestamp - lastTimestamp;
+    if (delta >= 1.0) {
+        double fps = frameCount / delta;
+        fpsLabel.text = [NSString stringWithFormat:@"FPS: %.0f", fps];
+        // Đổi màu chữ động theo mức FPS mượt mà
+        if (fps >= 55) {
+            fpsLabel.textColor = [UIColor greenColor];
+            fpsLabel.layer.borderColor = [UIColor greenColor].CGColor;
+        } else if (fps >= 30) {
+            fpsLabel.textColor = [UIColor orangeColor];
+            fpsLabel.layer.borderColor = [UIColor orangeColor].CGColor;
+        } else {
+            fpsLabel.textColor = [UIColor redColor];
+            fpsLabel.layer.borderColor = [UIColor redColor].CGColor;
+        }
+        frameCount = 0;
+        lastTimestamp = link.timestamp;
+    }
 }
 
 @end
 
 // =====================================================================
-// CONSTRUCTOR
+// KHỞI CHẠY GIAO DIỆN & TẠO LOGO WHITE HAT DI ĐỘNG CHỐNG NUỐT CHẠM
 // =====================================================================
-__attribute__((constructor)) static void init() {
+@interface HuyMenuInitializer : NSObject
++ (void)tryInitializeUI;
+@end
+
+@implementation HuyMenuInitializer
+
++ (void)tryInitializeUI {
     dispatch_async(dispatch_get_main_queue(), ^{
-        overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-        overlayWindow.windowLevel = UIWindowLevelNormal + 1000;
-        overlayWindow.backgroundColor = [UIColor clearColor];
-        overlayWindow.rootViewController = [[OverlayViewController alloc] init];
-        overlayWindow.hidden = NO;
+        UIWindowScene *scene = nil;
+        
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+                if (s.activationState == UISceneActivationStateForegroundActive && [s isKindOfClass:[UIWindowScene class]]) {
+                    scene = (UIWindowScene *)s;
+                    break;
+                }
+            }
+            if (!scene) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [HuyMenuInitializer tryInitializeUI];
+                });
+                return;
+            }
+        }
+        
+        // 1. Tạo nút nổi Logo di động "White Hat" kéo thả chống nuốt chạm hoàn toàn
+        if (@available(iOS 13.0, *)) {
+            floatingButtonWindow = [[UIWindow alloc] initWithWindowScene:scene];
+        } else {
+            floatingButtonWindow = [[UIWindow alloc] initWithFrame:CGRectMake(20, 180, 56, 56)];
+        }
+        floatingButtonWindow.frame = CGRectMake(20, 180, 56, 56);
+        floatingButtonWindow.backgroundColor = [UIColor clearColor];
+        floatingButtonWindow.windowLevel = UIWindowLevelAlert + 1001;
+        
+        UIViewController *btnRootVC = [[UIViewController alloc] init];
+        btnRootVC.view.backgroundColor = [UIColor clearColor];
+        floatingButtonWindow.rootViewController = btnRootVC;
+        
+        floatingLogoBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        floatingLogoBtn.frame = btnRootVC.view.bounds;
+        floatingLogoBtn.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:0.9];
+        floatingLogoBtn.layer.cornerRadius = 28;
+        floatingLogoBtn.layer.borderWidth = 1.5;
+        floatingLogoBtn.layer.borderColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.8 alpha:1.0].CGColor;
+        [floatingLogoBtn setTitle:@"🕵️‍♂️" forState:UIControlStateNormal];
+        floatingLogoBtn.titleLabel.font = [UIFont systemFontOfSize:28];
+        
+        floatingLogoBtn.layer.shadowColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.8 alpha:1.0].CGColor;
+        floatingLogoBtn.layer.shadowOffset = CGSizeZero;
+        floatingLogoBtn.layer.shadowRadius = 8;
+        floatingLogoBtn.layer.shadowOpacity = 0.9;
+        
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleFloatingPan:)];
+        [floatingLogoBtn addGestureRecognizer:pan];
+        
+        [floatingLogoBtn addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
+        [btnRootVC.view addSubview:floatingLogoBtn];
+        floatingButtonWindow.hidden = NO;
+
+        // 2. Tạo cửa sổ vẽ đồ họa ngầm Passthrough Window
+        if (@available(iOS 13.0, *)) {
+            overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithWindowScene:scene];
+        } else {
+            overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        }
+        overlayMenuWindow.frame = [UIScreen mainScreen].bounds;
+        overlayMenuWindow.backgroundColor = [UIColor clearColor];
+        overlayMenuWindow.windowLevel = UIWindowLevelAlert + 1000;
+        
+        HuyMenuController *controller = [[HuyMenuController alloc] init];
+        overlayMenuWindow.rootViewController = controller;
+        overlayMenuWindow.hidden = NO;
     });
 }
+
++ (void)handleFloatingPan:(UIPanGestureRecognizer *)gesture {
+    UIView *btn = gesture.view;
+    CGPoint translation = [gesture translationInView:btn.superview];
+    if (gesture.state == UIGestureRecognizerStateChanged) {
+        floatingButtonWindow.center = CGPointMake(floatingButtonWindow.center.x + translation.x, floatingButtonWindow.center.y + translation.y);
+        [gesture setTranslation:CGPointZero inView:btn.superview];
+    }
+}
+
++ (void)toggleMenu {
+    [HuyMenuController toggleMenuGlobal];
+}
+
+@end
+
+// =====================================================================
+// KHỞI CHẠY KHÔNG PHỤ THUỘC VÀO TRỄ THỜI GIAN LOAD APP
+// =====================================================================
+__attribute__((constructor)) static void initialize() {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        if ([UIApplication sharedApplication].keyWindow || [[UIApplication sharedApplication] windows].count > 0) {
+            [HuyMenuInitializer tryInitializeUI];
+        }
+#pragma clang diagnostic pop
+    });
+}
+
