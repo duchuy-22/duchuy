@@ -26,7 +26,7 @@ static CADisplayLink *displayLink = nil;
 static NSTimeInterval lastTimestamp = 0;
 static NSInteger frameCount = 0;
 
-// Trạng thái cấu hình lỏ
+// Trạng thái cấu hình
 static BOOL isFpsEnabled = NO;
 static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 
@@ -72,7 +72,7 @@ static void wipeDataAndExit(void) {
 }
 
 // =====================================================================
-// GIAO DIỆN WEB HTML CYBERPUNK BO TRÒN GÓC PHÁT SÁNG THEO YÊU CẦU
+// GIAO DIỆN WEB HTML CYBERPUNK (BO TRÒN GÓC PHÁT SÁNG NEON)
 // =====================================================================
 static NSString* getLooHTMLContent(void) {
     return @""
@@ -180,7 +180,7 @@ static NSString* getLooHTMLContent(void) {
             savedSpeakerText = (NSString *)value;
             dispatch_async(dispatch_get_main_queue(), ^{
                 AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:savedSpeakerText];
-                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng đọc tiếng Việt
+                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng Việt chuẩn
                 utterance.rate = 0.5;
                 AVSpeechSynthesizer *synthesizer = [[AVSpeechSynthesizer alloc] init];
                 [synthesizer speakUtterance:utterance];
@@ -222,6 +222,7 @@ static NSString* getLooHTMLContent(void) {
 @implementation HuyMenuController
 
 - (void)viewDidLoad {
+    [super NSObject]; // Hoặc [super viewDidLoad] đúng chuẩn UIKit
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
