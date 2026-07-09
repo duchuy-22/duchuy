@@ -40,7 +40,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: FFMod
-        path: |
-          FFMod.dylib
-          menu.html
-          create_key.html
+        path: FFMod.dylib
