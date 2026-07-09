@@ -1,39 +1,35 @@
-name: Build iOS dylib
+name: Build Mod Menu iOS
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+on: [push]
 
 jobs:
   build:
     runs-on: macos-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Build dylib
-        run: |
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          clang -dynamiclib -arch arm64 \
-            -isysroot "$SDK" \
-            -fobjc-arc \
-            -miphoneos-version-min=13.0 \
-            -framework UIKit \
-            -framework Foundation \
-            -framework CoreGraphics \
-            -framework QuartzCore \
-            -framework WebKit \
-            -framework AVFoundation \
-            -framework PhotosUI \
-            -framework SafariServices \
-            -framework Security \
-            -undefined dynamic_lookup \
-            -o FFDarkSword.dylib make.dylib.m
+    - name: Lay code ve may ao
+      uses: actions/checkout@v4
+    
+    - name: Compile dylib
+      run: |
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        
+        # Biên dịch dylib bằng Clang liên kết chính xác các thư viện hệ thống
+        clang -dynamiclib -arch arm64 \
+          -isysroot $SDK \
+          -fobjc-arc \
+          -miphoneos-version-min=13.0 \
+          -framework UIKit \
+          -framework Foundation \
+          -framework CoreGraphics \
+          -framework QuartzCore \
+          -framework WebKit \
+          -framework AVFoundation \
+          -undefined dynamic_lookup \
+          -o GrannyModMenu.dylib make.dylib.m
           
-      - name: Upload dylib
-        uses: actions/upload-artifact@v4
-        with:
-          name: FFDarkSword
-          path: FFDarkSword.dylib
+    - name: Tai file dylib len de nguoi dung download
+      uses: actions/upload-artifact@v4
+      with:
+        name: GrannyModMenu-iOS
+        path: GrannyModMenu.dylib
+
