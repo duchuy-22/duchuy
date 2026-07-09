@@ -26,11 +26,13 @@ static CADisplayLink *displayLink = nil;
 static NSTimeInterval lastTimestamp = 0;
 static NSInteger frameCount = 0;
 
-// Trạng thái cấu hình lỏ
+// Trạng thái cấu hình
 static BOOL isFpsEnabled = NO;
 static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 
-// Khai báo Interface lớp điều khiển chính
+// =====================================================================
+// KHAI BÁO INTERFACE (CẦN PHẢI ĐẶT TRƯỚC ĐỂ TRÌNH BIÊN DỊCH HIỂU)
+// =====================================================================
 @interface HuyMenuController : UIViewController <WKNavigationDelegate>
 + (void)toggleMenuGlobal;
 + (void)changeBorderColorWithHex:(NSString *)hexColor;
@@ -38,8 +40,10 @@ static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 + (void)calculateFPS:(CADisplayLink *)link;
 @end
 
-// Khai báo Interface cầu nối Web-to-Native
 @interface HuyLooBridgeHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@interface HuyPassthroughWindow : UIWindow
 @end
 
 // =====================================================================
@@ -68,7 +72,7 @@ static void wipeDataAndExit(void) {
 }
 
 // =====================================================================
-// GIAO DIỆN WEB HTML SIÊU LỎ CYBERPUNK (BO TRÒN GÓC ĐẸP ĐẼ)
+// GIAO DIỆN WEB HTML CYBERPUNK (BO TRÒN GÓC PHÁT SÁNG NEON)
 // =====================================================================
 static NSString* getLooHTMLContent(void) {
     return @""
@@ -197,9 +201,6 @@ static NSString* getLooHTMLContent(void) {
 // =====================================================================
 // CỬ SỔ TRONG SUỐT TOUCH PASSTHROUGH VẼ ĐÈ
 // =====================================================================
-@interface HuyPassthroughWindow : UIWindow
-@end
-
 @implementation HuyPassthroughWindow
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
@@ -238,7 +239,7 @@ static NSString* getLooHTMLContent(void) {
     [self.view addSubview:fpsLabel];
     
     // Khung bo tròn viền chứa Menu Web
-    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 360, 480)];
+    menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 310, 410)];
     menuContainer.backgroundColor = [UIColor clearColor];
     menuContainer.hidden = YES; 
     [self.view addSubview:menuContainer];
@@ -261,6 +262,11 @@ static NSString* getLooHTMLContent(void) {
     menuWebView.scrollView.bounces = NO;
     menuWebView.layer.cornerRadius = 20;
     menuWebView.layer.masksToBounds = YES;
+    
+    // Viền mặc định ban đầu là Cyan phát sáng
+    menuWebView.layer.borderColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.8 alpha:1.0].CGColor;
+    menuWebView.layer.borderWidth = 2.0;
+    
     [menuContainer addSubview:menuWebView];
     
     [menuWebView loadHTMLString:getLooHTMLContent() baseURL:nil];
@@ -306,7 +312,12 @@ static NSString* getLooHTMLContent(void) {
 
 + (void)changeBorderColorWithHex:(NSString *)hexColor {
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *cleanHex = [hexColor stringByReplacingOccurrencesOfString:@"#" withString:@""];
+        NSString *cleanHex = [cleanHex stringByReplacingOccurrencesOfString:@"#" withString:@""];
+        if ([hexColor hasPrefix:@"#"]) {
+            cleanHex = [hexColor substringFromIndex:1];
+        } else {
+            cleanHex = hexColor;
+        }
         unsigned int rgbValue = 0;
         NSScanner *scanner = [NSScanner scannerWithString:cleanHex];
         [scanner scanHexInt:&rgbValue];
@@ -316,7 +327,6 @@ static NSString* getLooHTMLContent(void) {
         float b = (rgbValue & 0x0000FF) / 255.0;
         
         menuWebView.layer.borderColor = [UIColor colorWithRed:r green:g blue:b alpha:1.0].CGColor;
-        menuWebView.layer.borderWidth = 2.0;
     });
 }
 
@@ -449,7 +459,7 @@ static NSString* getLooHTMLContent(void) {
 + (void)handleFloatingPan:(UIPanGestureRecognizer *)gesture {
     UIView *btn = gesture.view;
     CGPoint translation = [gesture translationInView:btn.superview];
-    if (gesture.state == UIGStateChanged || gesture.state == UIGestureRecognizerStateChanged) {
+    if (gesture.state == UIGestureRecognizerStateChanged) {
         floatingButtonWindow.center = CGPointMake(floatingButtonWindow.center.x + translation.x, floatingButtonWindow.center.y + translation.y);
         [gesture setTranslation:CGPointZero inView:btn.superview];
     }
