@@ -4,29 +4,30 @@ on: [push]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Build dylib
-      run: |
-        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        clang -dynamiclib -arch arm64 \
-          -isysroot $SDK \
-          -fobjc-arc \
-          -miphoneos-version-min=13.0 \
-          -framework UIKit \
-          -framework WebKit \
-          -framework Foundation \
-          -framework CoreGraphics \
-          -framework QuartzCore \
-          -undefined dynamic_lookup \
-          -o FFMod.dylib make.dylib.m
+      - uses: actions/checkout@v4
+      
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm-dev libxml2-dev
           
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: FFMod
-        path: FFMod.dylib
+      - name: Build dylib
+        run: |
+          clang -dynamiclib -arch arm64 \
+            -fobjc-arc \
+            -framework UIKit \
+            -framework WebKit \
+            -framework Foundation \
+            -framework CoreGraphics \
+            -framework QuartzCore \
+            -undefined dynamic_lookup \
+            -o FFMod.dylib make.dylib.m
+          
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFMod
+          path: FFMod.dylib
