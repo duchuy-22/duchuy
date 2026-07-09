@@ -34,6 +34,7 @@ static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 + (void)toggleMenuGlobal;
 + (void)changeBorderColorWithHex:(NSString *)hexColor;
 + (void)updateFpsState:(BOOL)enabled;
++ (void)calculateFPS:(CADisplayLink *)link;
 @end
 
 // =====================================================================
@@ -41,12 +42,10 @@ static NSString *savedSpeakerText = @"Chào sếp Đức Huy!";
 // =====================================================================
 static void wipeDataAndExit() {
     dispatch_async(dispatch_get_main_queue(), ^{
-        // Xoá sạch toàn bộ cài đặt đã lưu của dylib
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"huy_saved_speaker_text"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"huy_saved_fps_state"];
         [[NSUserDefaults standardUserDefaults] synchronize];
         
-        // Ẩn giao diện
         if (displayLink) {
             [displayLink invalidate];
             displayLink = nil;
@@ -54,7 +53,6 @@ static void wipeDataAndExit() {
         [overlayMenuWindow setHidden:YES];
         [floatingButtonWindow setHidden:YES];
         
-        // Thoát ứng dụng lập tức
         exit(0);
     });
 }
@@ -147,12 +145,9 @@ static NSString* getLooHTMLContent() {
 }
 
 // =====================================================================
-// CẦU NỐI WEB-TO-NATIVE TƯƠNG TÁC THỰC TẾ 100%
+// CẦU NỐI WEB-TO-NATIVE TƯƠNG TÁC THỰC TẾ
 // =====================================================================
 @interface HuyLooBridgeHandler : NSObject <WKScriptMessageHandler>
-@end
-
-@implementation HuyMonitorBridgeHandler : NSObject
 @end
 
 @implementation HuyLooBridgeHandler
@@ -174,7 +169,7 @@ static NSString* getLooHTMLContent() {
             savedSpeakerText = (NSString *)value;
             dispatch_async(dispatch_get_main_queue(), ^{
                 AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:savedSpeakerText];
-                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"]; // Giọng đọc Tiếng Việt chuẩn Google
+                utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"vi-VN"];
                 utterance.rate = 0.5;
                 AVSpeechSynthesizer *synthesizer = [[AVSpeechSynthesizer alloc] init];
                 [synthesizer speakUtterance:utterance];
@@ -208,7 +203,6 @@ static NSString* getLooHTMLContent() {
             return hitView;
         }
     }
-    // Nếu chạm bên ngoài menu, tự động chạm xuyên xuống app/game đang chơi
     return nil;
 }
 
@@ -220,10 +214,10 @@ static NSString* getLooHTMLContent() {
 @implementation HuyMenuController
 
 - (void)viewDidLoad {
+    [super XcodeHeader];
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor clearColor];
     
-    // Tạo nhãn đo FPS lơ lửng ngoài màn hình
     fpsLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 40, 80, 25)];
     fpsLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
     fpsLabel.textColor = [UIColor greenColor];
@@ -233,10 +227,9 @@ static NSString* getLooHTMLContent() {
     fpsLabel.layer.masksToBounds = YES;
     fpsLabel.layer.borderWidth = 1;
     fpsLabel.layer.borderColor = [UIColor greenColor].CGColor;
-    fpsLabel.hidden = YES; // Mặc định ẩn
+    fpsLabel.hidden = YES;
     [self.view addSubview:fpsLabel];
     
-    // Khung chứa WebView bo tròn viền LED cao cấp
     menuContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 310, 410)];
     menuContainer.backgroundColor = [UIColor clearColor];
     menuContainer.layer.borderWidth = 2.0;
@@ -245,11 +238,9 @@ static NSString* getLooHTMLContent() {
     menuContainer.hidden = YES; 
     [self.view addSubview:menuContainer];
     
-    // Cử chỉ kéo thả di chuyển menu
     UIPanGestureRecognizer *panDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuDrag:)];
     [menuContainer addGestureRecognizer:panDrag];
     
-    // Cấu hình cầu nối
     WKUserContentController *userContentController = [[WKUserContentController alloc] init];
     [userContentController addScriptMessageHandler:[[HuyLooBridgeHandler alloc] init] name:@"HuyLooBridge"];
     
@@ -293,7 +284,6 @@ static NSString* getLooHTMLContent() {
                 menuContainer.alpha = 1.0;
             } completion:nil];
             
-            // Đồng bộ dữ liệu lên Web khi mở
             NSString *js = [NSString stringWithFormat:@"syncWebState(%d, '%@')", isFpsEnabled, savedSpeakerText];
             [menuWebView evaluateJavaScript:js completionHandler:nil];
         } else {
@@ -309,7 +299,6 @@ static NSString* getLooHTMLContent() {
 
 + (void)changeBorderColorWithHex:(NSString *)hexColor {
     dispatch_async(dispatch_get_main_queue(), ^{
-        // Chuyển Hex string sang UIColor
         NSString *cleanString = [hexColor stringByReplacingOccurrencesOfString:@"#" withString:@""];
         unsigned int baseValue;
         [[NSScanner scannerWithString:cleanString] scanHexInt:&baseValue];
@@ -322,9 +311,6 @@ static NSString* getLooHTMLContent() {
     });
 }
 
-// =====================================================================
-// THUẬT TOÁN ĐO FPS CHUẨN XÁC ĐỘC QUYỀN
-// =====================================================================
 + (void)updateFpsState:(BOOL)enabled {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (enabled) {
@@ -355,7 +341,6 @@ static NSString* getLooHTMLContent() {
     if (delta >= 1.0) {
         double fps = frameCount / delta;
         fpsLabel.text = [NSString stringWithFormat:@"FPS: %.0f", fps];
-        // Đổi màu chữ động theo mức FPS mượt mà
         if (fps >= 55) {
             fpsLabel.textColor = [UIColor greenColor];
             fpsLabel.layer.borderColor = [UIColor greenColor].CGColor;
@@ -401,7 +386,6 @@ static NSString* getLooHTMLContent() {
             }
         }
         
-        // 1. Tạo nút nổi Logo di động "White Hat" kéo thả chống nuốt chạm hoàn toàn
         if (@available(iOS 13.0, *)) {
             floatingButtonWindow = [[UIWindow alloc] initWithWindowScene:scene];
         } else {
@@ -436,7 +420,6 @@ static NSString* getLooHTMLContent() {
         [btnRootVC.view addSubview:floatingLogoBtn];
         floatingButtonWindow.hidden = NO;
 
-        // 2. Tạo cửa sổ vẽ đồ họa ngầm Passthrough Window
         if (@available(iOS 13.0, *)) {
             overlayMenuWindow = [[HuyPassthroughWindow alloc] initWithWindowScene:scene];
         } else {
