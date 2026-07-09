@@ -104,9 +104,10 @@ static kern_return_t kernel_write(uintptr_t address, const void *buffer, size_t 
     if (kernel_task == MACH_PORT_NULL) {
         kernel_task = mach_task_self();
     }
-    mach_vm_protect(kernel_task, address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+    // FIX: dùng mach_vm_protect thay vì vm_protect
+    mach_vm_protect(kernel_task, (mach_vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE);
     memcpy((void *)address, buffer, size);
-    mach_vm_protect(kernel_task, address, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    mach_vm_protect(kernel_task, (mach_vm_address_t)address, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
     return KERN_SUCCESS;
 }
 
@@ -203,6 +204,7 @@ static BOOL isEspEnabled = YES;
 static BOOL isBoxEnabled = YES;
 static BOOL isFullBoxEnabled = YES;
 static BOOL isCornerBoxEnabled = NO;
+static BOOL isLineEnabled = YES;        // ← FIX: THÊM DÒNG NÀY
 static BOOL isSkeletonEnabled = YES;
 static BOOL isNameEnabled = YES;
 static BOOL isDistanceEnabled = YES;
@@ -591,11 +593,12 @@ static void registerOverlay(UIWindow *window) {
         [self addSwitch:self.contentView y:&y label:@"📦 Box" tag:1];
         [self addSwitch:self.contentView y:&y label:@"📦 Full Box" tag:2];
         [self addSwitch:self.contentView y:&y label:@"🔲 Corner Box" tag:3];
-        [self addSwitch:self.contentView y:&y label:@"🦴 Skeleton" tag:4];
-        [self addSwitch:self.contentView y:&y label:@"🏷️ Name" tag:5];
-        [self addSwitch:self.contentView y:&y label:@"📡 Distance" tag:6];
-        [self addSwitch:self.contentView y:&y label:@"❤️ HP" tag:7];
-        [self addSwitch:self.contentView y:&y label:@"🗺️ Minimap" tag:8];
+        [self addSwitch:self.contentView y:&y label:@"📏 Line" tag:4];
+        [self addSwitch:self.contentView y:&y label:@"🦴 Skeleton" tag:5];
+        [self addSwitch:self.contentView y:&y label:@"🏷️ Name" tag:6];
+        [self addSwitch:self.contentView y:&y label:@"📡 Distance" tag:7];
+        [self addSwitch:self.contentView y:&y label:@"❤️ HP" tag:8];
+        [self addSwitch:self.contentView y:&y label:@"🗺️ Minimap" tag:9];
     } else if (idx == 1) {
         // AIM Tab
         [self addSwitch:self.contentView y:&y label:@"🎯 Aimbot" tag:10];
@@ -686,7 +689,7 @@ static void registerOverlay(UIWindow *window) {
     UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(content.bounds.size.width-60, *y, 50, 30)];
     sw.onTintColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.8];
     sw.tag = tag;
-    if (tag < 10 || tag == 7) sw.on = YES;
+    if (tag < 10 || tag == 8) sw.on = YES;
     [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
     [content addSubview:sw];
     *y += 45;
@@ -698,11 +701,12 @@ static void registerOverlay(UIWindow *window) {
         case 1: isBoxEnabled = sender.on; break;
         case 2: isFullBoxEnabled = sender.on; break;
         case 3: isCornerBoxEnabled = sender.on; break;
-        case 4: isSkeletonEnabled = sender.on; break;
-        case 5: isNameEnabled = sender.on; break;
-        case 6: isDistanceEnabled = sender.on; break;
-        case 7: isHPEnabled = sender.on; break;
-        case 8: isMinimapEnabled = sender.on; break;
+        case 4: isLineEnabled = sender.on; break;
+        case 5: isSkeletonEnabled = sender.on; break;
+        case 6: isNameEnabled = sender.on; break;
+        case 7: isDistanceEnabled = sender.on; break;
+        case 8: isHPEnabled = sender.on; break;
+        case 9: isMinimapEnabled = sender.on; break;
         case 10: isAimbotEnabled = sender.on; break;
         case 11: isFovEnabled = sender.on; break;
         case 12: isAutoFireEnabled = sender.on; break;
@@ -897,7 +901,6 @@ static void registerOverlay(UIWindow *window) {
             [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
         }
         if (isCornerBoxEnabled) {
-            // Corner box (4 corners)
             float cornerSize = 10;
             [boxPath moveToPoint:CGPointMake(box.origin.x, box.origin.y + cornerSize)];
             [boxPath addLineToPoint:CGPointMake(box.origin.x, box.origin.y)];
