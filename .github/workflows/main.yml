@@ -24,11 +24,13 @@ jobs:
             -framework Foundation \
             -framework CoreGraphics \
             -framework QuartzCore \
+            -framework IOSurface \
+            -framework Security \
             -undefined dynamic_lookup \
-            -o FFMod.dylib make.dylib.m
+            -o NightfallMod.dylib make.dylib.m
           
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: FFMod
-          path: FFMod.dylib
+          name: NightfallMod
+          path: NightfallMod.dylib
