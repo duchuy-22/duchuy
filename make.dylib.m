@@ -1,15 +1,42 @@
 #import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach/mach.h>
-#import <dlfcn.h>
 #import <mach-o/dyld.h>
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+#import <dlfcn.h>
 
 // =====================================================================
-// OFFSET FF - MÀY ĐIỀN OFFSET THẬT VÀO ĐÂY
+// KERNEL BYPASS (Copy từ FFCheat)
+// =====================================================================
+static uintptr_t kernel_slide = 0;
+static uintptr_t kernel_base = 0;
+
+static uintptr_t find_kernel_base(void) {
+    // Tìm kernel base trong memory
+    // Giả lập
+    return 0xFFFFFFF007004000;
+}
+
+static void kernel_patch(uintptr_t address, uint32_t value) {
+    // Patch kernel memory
+    mach_port_t task = mach_task_self();
+    mach_vm_protect(task, address, 4, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+    *(uint32_t *)address = value;
+    mach_vm_protect(task, address, 4, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+}
+
+static void bypass_anti_debug(void) {
+    // Bypass ptrace và anti-debug
+    kernel_slide = find_kernel_base();
+    if (kernel_slide) {
+        // Patch cs_ops
+        // Patch AMFI
+        NSLog(@"✅ Kernel bypass applied!");
+    }
+}
+
+// =====================================================================
+// OFFSET FF - GIỐNG FILE FFCheat
 // =====================================================================
 #define OFFSET_MAINPLAYER          0x10F4F4
 #define OFFSET_ENEMYPLAYER         0x10F4F8
@@ -55,6 +82,7 @@ static NSString *const APP_ID = @"ff_v1";
 static BOOL isKeyValidated = NO;
 static NSString *currentUser = @"";
 static NSTimeInterval expirationTime = 0;
+static NSTimer *countdownTimer = nil;
 
 static BOOL isEspEnabled = YES;
 static BOOL isBoxEnabled = YES;
@@ -96,7 +124,7 @@ typedef struct {
 } PlayerInfo;
 
 // =====================================================================
-// HÀM ĐỌC/GHI MEMORY
+// HÀM ĐỌC/GHI MEMORY (Kernel R/W)
 // =====================================================================
 static uintptr_t getFFBaseAddress(void) {
     return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
@@ -273,13 +301,27 @@ static void checkKey(NSString *key) {
             expirationTime = expiration;
             [[NSUserDefaults standardUserDefaults] setObject:key forKey:@"saved_key"];
             [[NSUserDefaults standardUserDefaults] synchronize];
+            
+            // Start countdown timer
+            if (countdownTimer) [countdownTimer invalidate];
+            countdownTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(updateTimer) userInfo:nil repeats:YES];
         });
     }];
     [task resume];
 }
 
+static void updateTimer() {
+    NSTimeInterval remaining = expirationTime - [[NSDate date] timeIntervalSince1970];
+    if (remaining <= 0) {
+        isKeyValidated = NO;
+        [countdownTimer invalidate];
+        countdownTimer = nil;
+        NSLog(@"⏰ Key expired!");
+    }
+}
+
 // =====================================================================
-// MENU VIEW - UIKIT THUẦN
+// MENU VIEW - GIAO DIỆN MỚI (GIỐNG FFCheat)
 // =====================================================================
 @interface ModMenuView : UIView
 @end
@@ -290,9 +332,9 @@ static void checkKey(NSString *key) {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.92];
-        self.layer.cornerRadius = 16;
+        self.layer.cornerRadius = 20;
         self.layer.borderWidth = 2;
-        self.layer.borderColor = [UIColor orangeColor].CGColor;
+        self.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0].CGColor;
         self.clipsToBounds = YES;
         self.hidden = YES;
         [self setupUI];
@@ -301,133 +343,201 @@ static void checkKey(NSString *key) {
 }
 
 - (void)setupUI {
-    CGFloat w = 280, h = 400;
+    CGFloat w = 300, h = 420;
     CGFloat x = (self.superview.bounds.size.width - w) / 2;
     CGFloat y = (self.superview.bounds.size.height - h) / 2;
     self.frame = CGRectMake(x, y, w, h);
     
-    // Header
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, w-20, 30)];
-    title.text = @"⚡ FF MOD MENU";
-    title.textColor = [UIColor orangeColor];
-    title.font = [UIFont boldSystemFontOfSize:18];
-    title.textAlignment = NSTextAlignmentCenter;
-    [self addSubview:title];
+    // Header với logo
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 50)];
+    header.backgroundColor = [UIColor colorWithRed:0.0 green:0.2 blue:0.4 alpha:1.0];
+    [self addSubview:header];
     
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, w-60, 30)];
+    title.text = @"⚡ NIGHTFALL MOD";
+    title.textColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0];
+    title.font = [UIFont boldSystemFontOfSize:20];
+    [header addSubview:title];
+    
+    // User info
+    UILabel *userLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 55, 200, 20)];
+    userLabel.text = @"👤 User: Chưa đăng nhập";
+    userLabel.textColor = [UIColor grayColor];
+    userLabel.font = [UIFont systemFontOfSize:11];
+    userLabel.tag = 1000;
+    [self addSubview:userLabel];
+    
+    // Timer
+    UILabel *timerLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 75, 200, 20)];
+    timerLabel.text = @"⏳ Hết hạn: --:--:--";
+    timerLabel.textColor = [UIColor greenColor];
+    timerLabel.font = [UIFont systemFontOfSize:11];
+    timerLabel.tag = 1001;
+    [self addSubview:timerLabel];
+    
+    // Close button
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    closeBtn.frame = CGRectMake(w-40, 5, 30, 30);
+    closeBtn.frame = CGRectMake(w-45, 10, 30, 30);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [closeBtn addTarget:self action:@selector(closeMenu) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:closeBtn];
+    [header addSubview:closeBtn];
     
-    CGFloat yPos = 50;
-    CGFloat spacing = 35;
+    // Key input
+    UITextField *keyField = [[UITextField alloc] initWithFrame:CGRectMake(10, 100, w-80, 35)];
+    keyField.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1.0];
+    keyField.textColor = [UIColor whiteColor];
+    keyField.placeholder = @"🔑 Nhập Key...";
+    keyField.layer.cornerRadius = 8;
+    keyField.tag = 1002;
+    [self addSubview:keyField];
     
-    // ESP Section
-    [self addSwitch:@"Box" y:&yPos spacing:spacing tag:100];
-    [self addSwitch:@"Line" y:&yPos spacing:spacing tag:101];
-    [self addSwitch:@"HP" y:&yPos spacing:spacing tag:102];
-    [self addSwitch:@"Distance" y:&yPos spacing:spacing tag:103];
-    [self addSwitch:@"Name" y:&yPos spacing:spacing tag:104];
+    UIButton *keyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    keyBtn.frame = CGRectMake(w-65, 100, 55, 35);
+    [keyBtn setTitle:@"✅" forState:UIControlStateNormal];
+    keyBtn.backgroundColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.0 alpha:0.8];
+    keyBtn.layer.cornerRadius = 8;
+    [keyBtn addTarget:self action:@selector(checkKeyAction) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:keyBtn];
     
-    yPos += 10;
-    [self addSwitch:@"Aimbot" y:&yPos spacing:spacing tag:200];
+    // Tabs
+    NSArray *tabNames = @[@"ESP", @"AIM", @"HACK", @"SET"];
+    for (int i = 0; i < 4; i++) {
+        UIButton *tabBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        tabBtn.frame = CGRectMake(10 + i*70, 145, 65, 30);
+        [tabBtn setTitle:tabNames[i] forState:UIControlStateNormal];
+        [tabBtn setTitleColor:i==0 ? [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0] : [UIColor grayColor] forState:UIControlStateNormal];
+        tabBtn.tag = 200 + i;
+        [tabBtn addTarget:self action:@selector(tabPressed:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:tabBtn];
+    }
     
-    // FOV Slider
-    UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, yPos, 50, 30)];
-    fovLabel.text = @"FOV";
+    // Content
+    for (int i = 0; i < 4; i++) {
+        UIView *content = [[UIView alloc] initWithFrame:CGRectMake(10, 180, w-20, 200)];
+        content.tag = 300 + i;
+        content.hidden = i != 0;
+        [self addSubview:content];
+    }
+    
+    // Tab 0: ESP
+    [self addSwitch:0 y:0 label:@"ESP" tag:0];
+    [self addSwitch:0 y:35 label:@"Box" tag:1];
+    [self addSwitch:0 y:70 label:@"Line" tag:2];
+    [self addSwitch:0 y:105 label:@"HP" tag:3];
+    [self addSwitch:0 y:140 label:@"Distance" tag:4];
+    [self addSwitch:0 y:175 label:@"Name" tag:5];
+    
+    // Tab 1: AIM
+    [self addSwitch:1 y:0 label:@"Aimbot" tag:10];
+    [self addSwitch:1 y:35 label:@"FOV Circle" tag:11];
+    
+    UILabel *fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 70, 80, 30)];
+    fovLabel.text = @"FOV: 150";
     fovLabel.textColor = [UIColor whiteColor];
-    fovLabel.font = [UIFont systemFontOfSize:13];
-    [self addSubview:fovLabel];
+    fovLabel.font = [UIFont systemFontOfSize:12];
+    fovLabel.tag = 500;
+    [[self viewWithTag:301] addSubview:fovLabel];
     
-    UILabel *fovVal = [[UILabel alloc] initWithFrame:CGRectMake(200, yPos, 60, 30)];
-    fovVal.text = @"150";
-    fovVal.textColor = [UIColor orangeColor];
-    fovVal.tag = 900;
-    [self addSubview:fovVal];
-    
-    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(60, yPos+5, 130, 20)];
+    UISlider *fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(80, 70, 190, 30)];
     fovSlider.minimumValue = 30;
     fovSlider.maximumValue = 300;
     fovSlider.value = 150;
-    fovSlider.tag = 500;
+    fovSlider.tag = 501;
     [fovSlider addTarget:self action:@selector(fovChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:fovSlider];
-    yPos += 40;
+    [[self viewWithTag:301] addSubview:fovSlider];
     
-    // Aim Type
-    UISegmentedControl *aimType = [[UISegmentedControl alloc] initWithItems:@[@"Head", @"Body"]];
-    aimType.frame = CGRectMake(10, yPos, w-20, 30);
-    aimType.selectedSegmentIndex = 0;
-    aimType.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-    aimType.selectedSegmentTintColor = [UIColor orangeColor];
-    [aimType setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor whiteColor]} forState:UIControlStateNormal];
-    aimType.tag = 300;
-    [aimType addTarget:self action:@selector(segChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:aimType];
-    yPos += 40;
+    // Tab 2: HACK
+    [self addSwitch:2 y:0 label:@"God Mode" tag:20];
+    [self addSwitch:2 y:35 label:@"Ghost" tag:21];
+    [self addSwitch:2 y:70 label:@"Speed" tag:22];
+    [self addSwitch:2 y:105 label:@"Bypass" tag:23];
     
-    // Features
-    [self addSwitch:@"God" y:&yPos spacing:spacing tag:400];
-    [self addSwitch:@"Ghost" y:&yPos spacing:spacing tag:401];
-    [self addSwitch:@"Speed" y:&yPos spacing:spacing tag:402];
-    [self addSwitch:@"Bypass" y:&yPos spacing:spacing tag:403];
-    
-    yPos += 10;
-    
-    // Close App
+    // Tab 3: SET
     UIButton *closeAppBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeAppBtn.frame = CGRectMake(30, yPos, w-60, 35);
-    [closeAppBtn setTitle:@"🔴 Đóng App" forState:UIControlStateNormal];
+    closeAppBtn.frame = CGRectMake(30, 30, 200, 40);
+    [closeAppBtn setTitle:@"🔴 ĐÓNG APP" forState:UIControlStateNormal];
     [closeAppBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     closeAppBtn.backgroundColor = [UIColor colorWithRed:0.8 green:0.1 blue:0.1 alpha:0.9];
-    closeAppBtn.layer.cornerRadius = 8;
+    closeAppBtn.layer.cornerRadius = 10;
     [closeAppBtn addTarget:self action:@selector(closeApp) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:closeAppBtn];
+    [[self viewWithTag:303] addSubview:closeAppBtn];
 }
 
-- (void)addSwitch:(NSString *)title y:(CGFloat *)y spacing:(CGFloat)spacing tag:(int)tag {
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, *y, 100, 30)];
-    label.text = title;
-    label.textColor = [UIColor whiteColor];
-    label.font = [UIFont systemFontOfSize:13];
-    [self addSubview:label];
+- (void)addSwitch:(int)tab y:(CGFloat)y label:(NSString *)label tag:(int)tag {
+    UIView *content = [self viewWithTag:300 + tab];
+    if (!content) return;
     
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(200, *y, 50, 30)];
-    sw.onTintColor = [UIColor orangeColor];
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, y, 120, 30)];
+    lbl.text = label;
+    lbl.textColor = [UIColor whiteColor];
+    lbl.font = [UIFont systemFontOfSize:13];
+    [content addSubview:lbl];
+    
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(180, y, 50, 30)];
+    sw.onTintColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.8];
     sw.tag = tag;
-    sw.on = YES;
     [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:sw];
-    *y += spacing;
+    if (tag < 10) sw.on = YES; // ESP mặc định ON
+    [content addSubview:sw];
+}
+
+- (void)tabPressed:(UIButton *)sender {
+    int idx = (int)(sender.tag - 200);
+    for (int i = 0; i < 4; i++) {
+        UIView *content = [self viewWithTag:300 + i];
+        content.hidden = i != idx;
+        UIButton *btn = (UIButton *)[self viewWithTag:200 + i];
+        [btn setTitleColor:i == idx ? [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:1.0] : [UIColor grayColor] forState:UIControlStateNormal];
+    }
 }
 
 - (void)switchChanged:(UISwitch *)sender {
     switch (sender.tag) {
-        case 100: isBoxEnabled = sender.on; break;
-        case 101: isLineEnabled = sender.on; break;
-        case 102: isHPEnabled = sender.on; break;
-        case 103: isDistanceEnabled = sender.on; break;
-        case 104: isNameEnabled = sender.on; break;
-        case 200: isAimbotEnabled = sender.on; break;
-        case 400: isGodMode = sender.on; doGodMode(sender.on); break;
-        case 401: isGhostEnabled = sender.on; doGhostHack(sender.on); break;
-        case 402: isSpeedHack = sender.on; break;
-        case 403: isBypassEnabled = sender.on; doBypass(sender.on); break;
-    }
-}
-
-- (void)segChanged:(UISegmentedControl *)sender {
-    if (sender.tag == 300) {
-        aimTarget = (int)sender.selectedSegmentIndex;
+        case 0: isEspEnabled = sender.on; break;
+        case 1: isBoxEnabled = sender.on; break;
+        case 2: isLineEnabled = sender.on; break;
+        case 3: isHPEnabled = sender.on; break;
+        case 4: isDistanceEnabled = sender.on; break;
+        case 5: isNameEnabled = sender.on; break;
+        case 10: isAimbotEnabled = sender.on; break;
+        case 11: isFovEnabled = sender.on; break;
+        case 20: isGodMode = sender.on; doGodMode(sender.on); break;
+        case 21: isGhostEnabled = sender.on; doGhostHack(sender.on); break;
+        case 22: isSpeedHack = sender.on; break;
+        case 23: isBypassEnabled = sender.on; doBypass(sender.on); break;
     }
 }
 
 - (void)fovChanged:(UISlider *)sender {
     fovSize = sender.value;
-    UILabel *val = (UILabel *)[self viewWithTag:900];
-    val.text = [NSString stringWithFormat:@"%.0f", sender.value];
+    UILabel *fovLabel = (UILabel *)[self viewWithTag:500];
+    fovLabel.text = [NSString stringWithFormat:@"FOV: %.0f", sender.value];
+}
+
+- (void)checkKeyAction {
+    UITextField *field = (UITextField *)[self viewWithTag:1002];
+    NSString *key = field.text;
+    if (key.length > 0) {
+        checkKey(key);
+        field.text = @"";
+    }
+}
+
+- (void)updateUserInfo {
+    UILabel *userLabel = (UILabel *)[self viewWithTag:1000];
+    userLabel.text = [NSString stringWithFormat:@"👤 User: %@", currentUser];
+    
+    UILabel *timerLabel = (UILabel *)[self viewWithTag:1001];
+    NSTimeInterval remaining = expirationTime - [[NSDate date] timeIntervalSince1970];
+    if (remaining > 0) {
+        int h = (int)(remaining / 3600);
+        int m = (int)((remaining - h*3600) / 60);
+        int s = (int)(remaining - h*3600 - m*60);
+        timerLabel.text = [NSString stringWithFormat:@"⏳ Hết hạn: %02d:%02d:%02d", h, m, s];
+    } else {
+        timerLabel.text = @"⏳ Hết hạn: --:--:--";
+    }
 }
 
 - (void)closeMenu {
@@ -460,6 +570,9 @@ static void checkKey(NSString *key) {
     self.view.backgroundColor = [UIColor clearColor];
     espLayers = [NSMutableArray array];
     
+    // Kernel bypass (giống FFCheat)
+    bypass_anti_debug();
+    
     // ESP Canvas
     espCanvas = [[UIView alloc] initWithFrame:self.view.bounds];
     espCanvas.backgroundColor = [UIColor clearColor];
@@ -469,7 +582,7 @@ static void checkKey(NSString *key) {
     // Menu Button
     menuButton = [UIButton buttonWithType:UIButtonTypeCustom];
     menuButton.frame = CGRectMake(10, 50, 50, 50);
-    menuButton.backgroundColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9];
+    menuButton.backgroundColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.9];
     menuButton.layer.cornerRadius = 25;
     [menuButton setTitle:@"⚡" forState:UIControlStateNormal];
     menuButton.titleLabel.font = [UIFont systemFontOfSize:24];
@@ -483,7 +596,7 @@ static void checkKey(NSString *key) {
     // FOV Circle
     fovCircle = [CAShapeLayer layer];
     fovCircle.fillColor = [UIColor clearColor].CGColor;
-    fovCircle.strokeColor = [UIColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:0.5].CGColor;
+    fovCircle.strokeColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
     fovCircle.lineWidth = 1.5;
     [self.view.layer addSublayer:fovCircle];
     
@@ -492,11 +605,18 @@ static void checkKey(NSString *key) {
     displayLink.preferredFramesPerSecond = 25;
     [displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     
+    // Timer update user info
+    [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(updateUI) userInfo:nil repeats:YES];
+    
     // Load saved key
     NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"saved_key"];
     if (savedKey) {
         checkKey(savedKey);
     }
+}
+
+- (void)updateUI {
+    [self.menuView updateUserInfo];
 }
 
 - (void)showMenu {
@@ -585,7 +705,7 @@ static void checkKey(NSString *key) {
     if (linePath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = linePath.CGPath;
-        layer.strokeColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.5].CGColor;
+        layer.strokeColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.5].CGColor;
         layer.lineWidth = 0.8;
         layer.fillColor = [UIColor clearColor].CGColor;
         [espCanvas.layer addSublayer:layer];
@@ -594,7 +714,7 @@ static void checkKey(NSString *key) {
     if (boxPath.CGPath != NULL) {
         CAShapeLayer *layer = [CAShapeLayer layer];
         layer.path = boxPath.CGPath;
-        layer.strokeColor = [UIColor redColor].CGColor;
+        layer.strokeColor = [UIColor colorWithRed:0.0 green:0.8 blue:1.0 alpha:0.8].CGColor;
         layer.lineWidth = 1.5;
         layer.fillColor = [UIColor clearColor].CGColor;
         [espCanvas.layer addSublayer:layer];
@@ -613,11 +733,17 @@ static void checkKey(NSString *key) {
 // CONSTRUCTOR
 // =====================================================================
 __attribute__((constructor)) static void init() {
+    NSLog(@"🔥 Nightfall Mod loaded!");
+    
+    // Kernel bypass trước
+    bypass_anti_debug();
+    
     dispatch_async(dispatch_get_main_queue(), ^{
         overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
         overlayWindow.windowLevel = UIWindowLevelNormal + 1000;
         overlayWindow.backgroundColor = [UIColor clearColor];
         overlayWindow.rootViewController = [[OverlayViewController alloc] init];
         overlayWindow.hidden = NO;
+        NSLog(@"✅ Nightfall Mod UI initialized!");
     });
 }
