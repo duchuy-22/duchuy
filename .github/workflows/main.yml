@@ -1,23 +1,46 @@
-name: Create FFCheat
+name: Build FF Mod
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
+    
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Create FFCheat file
+    - name: Install dependencies
       run: |
-        # Tạo file không đuôi
-        echo "FFCheat file" > FFCheat
-        # Hoặc nén thư mục thành file không đuôi
-        zip -r FFCheat make.dylib.m menu.html
+        brew install ldid
+        sudo ln -sf /usr/bin/ldid /usr/local/bin/ldid
         
-    - name: Upload
+    - name: Build dylib
+      run: |
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        clang -dynamiclib -arch arm64 \
+          -isysroot $SDK \
+          -fobjc-arc \
+          -miphoneos-version-min=13.0 \
+          -framework UIKit \
+          -framework WebKit \
+          -framework Foundation \
+          -framework CoreGraphics \
+          -framework QuartzCore \
+          -framework Security \
+          -undefined dynamic_lookup \
+          -o FFMod.dylib make.dylib.m
+          
+    - name: Upload dylib
       uses: actions/upload-artifact@v4
       with:
-        name: FFCheat
-        path: FFCheat.dylib
+        name: FFMod
+        path: |
+          FFMod.dylib
+          menu.html
+          create_key.html
