@@ -1,35 +1,16 @@
 name: Build iOS dylib
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+on: [push]
 
 jobs:
   build:
     runs-on: macos-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Build dylib
-        run: |
+      - uses: actions/checkout@v4
+      - run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          clang -dynamiclib -arch arm64 \
-            -isysroot "$SDK" \
-            -fobjc-arc \
-            -miphoneos-version-min=13.0 \
-            -framework UIKit \
-            -framework WebKit \
-            -framework Foundation \
-            -framework CoreGraphics \
-            -framework QuartzCore \
-            -undefined dynamic_lookup \
-            -o FFMod.dylib make.dylib.m
-          
-      - name: Upload dylib
-        uses: actions/upload-artifact@v4
+          clang -dynamiclib -arch arm64 -isysroot "$SDK" -fobjc-arc -miphoneos-version-min=13.0 -framework UIKit -framework WebKit -framework Foundation -framework CoreGraphics -framework QuartzCore -undefined dynamic_lookup -o FFMod.dylib make.dylib.m
+      - uses: actions/upload-artifact@v4
         with:
           name: FFMod
           path: FFMod.dylib
