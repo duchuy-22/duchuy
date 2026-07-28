@@ -1,41 +1,40 @@
-name: Build Mod Menu iOS
+name: Build ESP Tweak
 
-on: [push]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-    steps:
-    - name: Lay code ve may ao
-      uses: actions/checkout@v4
-    
-    - name: Compile dylib
-      run: |
-        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        
-        # Biên dịch dylib bằng Clang liên kết chính xác TOÀN BỘ các thư viện hệ thống trong ảnh sếp gửi
-        clang -dynamiclib -arch arm64 \
-          -isysroot $SDK \
-          -fobjc-arc \
-          -miphoneos-version-min=13.0 \
-          -framework UIKit \
-          -framework Foundation \
-          -framework CoreFoundation \
-          -framework CoreGraphics \
-          -framework QuartzCore \
-          -framework WebKit \
-          -framework AVFoundation \
-          -framework AVKit \
-          -framework PhotosUI \
-          -framework SafariServices \
-          -framework Security \
-          -framework IOSurface \
-          -undefined dynamic_lookup \
-          -o GrannyModMenu.dylib make.dylib.m
-          
-    - name: Tai file dylib len de nguoi dung download
-      uses: actions/upload-artifact@v4
-      with:
-        name: GrannyModMenu-iOS
-        path: GrannyModMenu.dylib
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Cache Theos
+        uses: actions/cache@v4
+        id: cache-theos
+        with:
+          path: theos
+          key: ${{ runner.os }}-theos-${{ hashFiles('.gitmodules') }}
+
+      - name: Install Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-dir: theos
+          theos-sdks: https://github.com/theos/sdks
+
+      - name: Build tweak
+        run: |
+          export THEOS=./theos
+          make package FINALPACKAGE=1
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESPTweak
+          path: packages/*.deb
