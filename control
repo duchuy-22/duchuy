@@ -1,9 +1,9 @@
-Package: com.yourname.fpsoverlay
-Name: FPS Overlay
+Package: com.yourname.menuesp
+Name: MenuESP
 Version: 1.0
-Architecture: iphoneos-arm64
-Description: Hien thi FPS thoi gian thuc, dieu khien bat/tat qua web UI
+Architecture: iphoneos-arm
+Description: ESP + Bypass Anti-Cheat
 Maintainer: YourName
 Author: YourName
 Section: Tweaks
-Depends: mobilesubstrate
+Depends: mobilesubstrate (>= 0.9.5000)
