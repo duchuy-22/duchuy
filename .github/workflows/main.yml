@@ -12,23 +12,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cache Theos
-        uses: actions/cache@v4
-        id: cache-theos
-        with:
-          path: theos
-          key: ${{ runner.os }}-theos-${{ hashFiles('.gitmodules') }}
+      - name: Install Theos dependencies
+        run: |
+          brew install ldid make
 
-      - name: Install Theos
-        if: steps.cache-theos.outputs.cache-hit != 'true'
-        uses: Randomblock1/theos-action@v1
-        with:
-          theos-dir: theos
-          theos-sdks: https://github.com/theos/sdks
+      - name: Clone Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+
+      - name: Download SDK
+        run: |
+          mkdir -p $HOME/theos/sdks
+          curl -L https://github.com/theos/sdks/archive/refs/heads/master.zip -o sdks.zip
+          unzip sdks.zip -d $HOME/theos/sdks
+          mv $HOME/theos/sdks/sdks-master/* $HOME/theos/sdks/
+          rm -rf $HOME/theos/sdks/sdks-master sdks.zip
 
       - name: Build tweak
         run: |
-          export THEOS=./theos
+          export THEOS=$HOME/theos
           make package FINALPACKAGE=1
 
       - name: Upload .deb
