@@ -1,13 +1,12 @@
-ARCHS = arm64 arm64e
-TARGET = iphone:clang:latest:14.0
-
-THEOS_DEVICE_IP =
-
+export THEOS=/opt/theos
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = FPSOverlay
-FPSOverlay_FILES = make.dylib.m
-FPSOverlay_CFLAGS = -fobjc-arc
-FPSOverlay_FRAMEWORKS = UIKit CoreGraphics QuartzCore
+TWEAK_NAME = MenuESP
+MenuESP_FILES = Tweak.xm
+MenuESP_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+MenuESP_LDFLAGS += -framework UIKit -framework Foundation -framework OpenGLES
 
-include $(THEOS_MAKE_PATH)/tweak.mk
+include $(THEOS)/makefiles/tweak.mk
+
+after-install::
+	install.exec "killall -9 FreeFire"
