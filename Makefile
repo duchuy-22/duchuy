@@ -3,8 +3,8 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = MenuESP
 MenuESP_FILES = Tweak.xm
-MenuESP_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
-MenuESP_LDFLAGS += -framework UIKit -framework Foundation -framework OpenGLES
+MenuESP_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-objc-missing-super-calls
+MenuESP_LDFLAGS += -framework UIKit -framework Foundation
 
 include $(THEOS)/makefiles/tweak.mk
 
